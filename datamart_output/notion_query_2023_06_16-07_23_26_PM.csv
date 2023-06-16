@@ -1,0 +1,4 @@
+PatientName,PatientID,AccessionNumber,PatientBirthDate,StudyDate,ModalitiesInStudy,StudyDescription,AnonymizedName,AnonymizedAccessionNumber,OriginalAccessionNumber
+,1,11,,,,,,,
+,2,22,,,,,,,
+,3,33,,,,,,,
