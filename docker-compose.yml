@@ -1,0 +1,9 @@
+version: '3'
+
+services:
+  mayo-dev:
+    build: .
+    volumes:
+      - .:/app
+    command: /bin/bash
+    tty: true

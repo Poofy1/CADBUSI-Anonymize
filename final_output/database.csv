@@ -1,1 +1,2 @@
-
+id,filename,dicom_hash,image_hash,anonymized_accession_num,biopsy,birads
+1,test_zip_00001.dcm,843bd611ea84fbe0f058909fec3fa649,00279ac046ad3d1eccef4899a9f5719b,0,1,1

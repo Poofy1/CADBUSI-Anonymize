@@ -187,42 +187,6 @@ class Dicom(db.Entity):  # type: ignore
         # noqa
         path = f'{DATA_PATH}/images/cropped/{self.local_cropped_filename}'
         return pathlib.Path(path)
-
-
-class CustomDicom:
-    def __init__(self, case, filename, dicom_hash, image_hash, metadata):
-        self.case = case
-        self.filename = filename
-        self.dicom_hash = dicom_hash
-        self.image_hash = image_hash
-        self.metadata = metadata
-
-    @property
-    def local_dicom_filename(self) -> str:
-        return f'{self.case["accession_num"]:06}_{self.filename}'
-
-    @property
-    def local_dicom_filepath(self) -> pathlib.Path:
-        path = f'{DATA_PATH}/dicoms/{self.local_dicom_filename}'
-        return pathlib.Path(path)
-
-    @property
-    def local_source_filename(self) -> str:
-        return f'{self.case["accession_num"]:06}_source.png'
-
-    @property
-    def local_source_filepath(self) -> pathlib.Path:
-        path = f'{DATA_PATH}/images/source/{self.local_source_filename}'
-        return pathlib.Path(path)
-
-    @property
-    def local_cropped_filename(self) -> str:
-        return f'{self.case["accession_num"]:06}_cropped.png'
-
-    @property
-    def local_cropped_filepath(self) -> pathlib.Path:
-        path = f'{DATA_PATH}/images/cropped/{self.local_cropped_filename}'
-        return pathlib.Path(path)
     
     
 class DicomSchema(BaseModel):
@@ -412,16 +376,36 @@ def upload_datamart(file_path: str, DATA_PATH: str) -> Union[str, None]:
         datamart_df = pd.read_csv(io.BytesIO(content))
         datamart_df.to_csv(f'{datamart_dir}/{datamart_filename}', index=False)
 
-    # Your DB operations were removed here - adapt as necessary
+    # Save datamart information to database
+    with db_session:
+        for i, row in datamart_df.iterrows():
+            if Case.select(lambda c: c.accession_num == row['ACCESSIONNUMBER']).exists():
+                continue
+            case_obj = Case(
+                mrn = row['PATIENTID'],
+                accession_num = row['ACCESSIONNUMBER'],
+                biopsy = str(row['BIOP_SCORE']),
+                birads = str(row['SCORE_CD']),
+                datamart_filename = datamart_filename,
+                datamart_filepath = f'{datamart_dir}/{datamart_filename}',
+                datamart_vars = row.to_json()
+            )
 
     # Create new dataframe for Notion query
     col_names = [
         'PatientName', 'PatientID', 'AccessionNumber', 
         'PatientBirthDate', 'StudyDate', 'ModalitiesInStudy', 
-        'StudyDescription', 'AnonymizedName', 'AnonymizedAccessionNumber', 'OriginalAccessionNumber']
+        'StudyDescription', 'AnonymizedName', 'AnonymizedAccessionNumber', 
+        'OriginalAccessionNumber', 'mrn', 'biopsy', 'birads', 'datamart_filename',
+        'datamart_filepath', 'datamart_vars']
     notion_query_df = pd.DataFrame(
         {'PatientID': datamart_df['PATIENTID'],
-	     'AccessionNumber': datamart_df['ACCESSIONNUMBER']}, 
+	    'AccessionNumber': datamart_df['ACCESSIONNUMBER'],
+        'biopsy' : str(row['BIOP_SCORE']),
+        'birads' : str(row['SCORE_CD']),
+        'datamart_filename' : datamart_filename,
+        'datamart_filepath' : f'{datamart_dir}/{datamart_filename}',
+        'datamart_vars' : row.to_json()}, 
         columns=col_names)
 
     print("NOTION QUERY DF:", notion_query_df)
@@ -601,7 +585,18 @@ def upload_dicom(notion_filename: str, output_filename: str, file: UploadFile = 
         print(cases.values())
         for case in cases.values():
             if case['notion_filename'] == notion_filename: #and case['anonymized_accession_num'] == dicom.AccessionNumber:
-                case_obj = case
+                case_obj = Case(
+                    accession_num=case.get('accession_num', None),
+                    mrn=case.get('mrn', 1),
+                    biopsy=case.get('biopsy', '1'),
+                    birads=case.get('birads', '1'),
+                    datamart_filename=case.get('datamart_filename', '1'),
+                    datamart_filepath=case.get('datamart_filepath', '1'),
+                    datamart_vars= json.dumps(case.get('datamart_vars', {})),
+                    anonymized_accession_num=case.get('anonymized_accession_num', 1),
+                    notion_filename=case.get('notion_filename', '1'),
+                    notion_filepath=case.get('notion_filepath', '1')
+                )
                 break
 
         if not case_obj:
@@ -609,7 +604,7 @@ def upload_dicom(notion_filename: str, output_filename: str, file: UploadFile = 
             return {'filename': output_filename, 'status': 'No matching Case record found'}
 
         # Create CustomDicom instance
-        dicom_obj = CustomDicom(
+        dicom_obj = Dicom(
             case=case_obj,
             filename=output_filename,
             dicom_hash=dicom_hash_value,
@@ -652,7 +647,7 @@ def export_data():
             result[i] = case_dict
             
             for i, dicom_dict in enumerate(case_dict['dicoms']):
-                case_dict['dicoms'][i] = deidentify_dicom(dicom_dict)
+                case_dict['dicoms'][i] = deidentify_dicom_dict(dicom_dict)
 
         # Save deidentified databse to export folder
         with open(f'{final_output}/database.json', 'w') as json_fp:
