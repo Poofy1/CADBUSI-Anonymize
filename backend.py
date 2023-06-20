@@ -1,47 +1,25 @@
-import os
 from typing import Any
-
 import numpy as np
 import pydicom
 from numpy import uint8
 from numpy.typing import NDArray
-import deidentify
-import json
-import pathlib
+import json, pathlib, pydicom, os
+import hashlib, io, shutil
 from typing import List, Union
-
 from pony.orm import Database, Json, PrimaryKey, Required, Optional, Set, db_session
 from pydantic import BaseModel, validator
-
-import asyncio
-import hashlib
-import io
-import tempfile
-import shutil
-
 from datetime import datetime
 import numpy as np
 import pandas as pd
-import pydicom
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi import File, UploadFile
 from PIL import Image, ImageFile
 from zipfile import ZipFile
-import redis
 
 #Dictionary that holds the notion data
 cases = {}
 
-# Pixel value threshold for creating masks
-PIXEL_THRESHOLD = 150
 
-# Maximum height of an image can be before we extract text, we crop it if
-# it is over.
-MAXIMUM_VERTICAL_CROP = 500
-
-
-def dicom_to_dict(dicom: pydicom.FileDataset |
-                  pydicom.Dataset) -> dict[str, Any]:
+def dicom_to_dict(dicom: pydicom.FileDataset | pydicom.Dataset) -> dict[str, Any]:
     """
     Convert DICOM metadata to python dictionary.
 
@@ -77,28 +55,9 @@ def dicom_to_dict(dicom: pydicom.FileDataset |
     return data
 
 
-
-
-def deidentify_image(self, src_path, dest_path):  # pylint: disable=unused-argument
-    dest_dir_path, dest_filename = os.path.split(dest_path)
-    print(f'SRC_PATH: {src_path} DEST_PATH: {dest_path}')
-    print(f'SRC_PATH: {src_path} DEST_DIR_PATH: {dest_dir_path} DEST_FILENAME: {dest_filename}')
-
-    text_extracted = deidentipy.run(src_path, dest_dir_path + '/', dest_filename)
-    
-    return True
-
-
-
-
-
 DATA_PATH = 'data'
 DATA_EXPORT_PATH = '/usr/data/export'
 DATABASE_FILENAME = 'db.sqlite3'
-
-INGEST_ZIPFILE_PATH = '/usr/data/zip_archives'
-DATA_ZIPFILE_PATH = '/usr/src/app/data/zip'
-
 
 # Bind database to file and load/create tables
 if not os.path.exists(DATABASE_FILENAME):
@@ -109,6 +68,7 @@ if not os.path.exists(DATABASE_FILENAME):
 folder_paths = [
     'data',
     'data/csv', 
+    'data/csv/all_data',
     'data/csv/datamart',
     'data/csv/notion',
     'data/dicoms',
@@ -200,7 +160,7 @@ class DicomSchema(BaseModel):
     def load_metadata(cls, value):
         if value == {}:
             return ""
-        print("metadata type:", type(value))
+        #print("metadata type:", type(value))
         # print("metadata:", value)
         return json.loads(value)
 
@@ -252,17 +212,6 @@ class CaseSchema(BaseModel):
 
 
 
-
-
-
-
-
-# Initialize fastAPI
-app = FastAPI()
-
-# Connect to redis database
-redis_conn = redis.Redis(host='redis', port=6379, db=1)
-
 # Create/Load database
 db.generate_mapping(create_tables=True)
 
@@ -285,9 +234,8 @@ def deidentify_dicom_dict(dicom_dict):
     dicom_dict['metadata']['PatientAge'] = ''
     return dicom_dict
 
-def unzip_file(filepath: str, notion_filepath: str):
+def unzip_file(filepath: str, notion_filepath: str, output_path: str):
     env = os.path.dirname(os.path.abspath(__file__))
-    output_path = f"{env}/zip_output"
     
     if not os.path.exists(output_path):
         os.makedirs(output_path, exist_ok=True)
@@ -327,7 +275,7 @@ def fetch_dicom_files():
     return result
 
 
-def upload_datamart(file_path: str, DATA_PATH: str) -> Union[str, None]:
+def upload_datamart(file_path: str, DATA_PATH: str, BACKUP_DIR) -> Union[str, None]:
     # Check that file exists
     if not os.path.exists(DATA_PATH):
         os.makedirs(DATA_PATH, exist_ok=True)
@@ -346,7 +294,7 @@ def upload_datamart(file_path: str, DATA_PATH: str) -> Union[str, None]:
     # Create filenames
     timestamp = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
     notion_filename = f"notion_query_{timestamp}.csv"
-    datamart_dir = f"{DATA_PATH}/{datamart_hash_value}"
+    datamart_dir = f"{BACKUP_DIR}/{datamart_hash_value}"
     print("DIR:", datamart_dir, " ISDIR:", os.path.isdir(datamart_dir))
     if os.path.isdir(datamart_dir):
         # Get existing filename and load it
@@ -395,22 +343,20 @@ def upload_datamart(file_path: str, DATA_PATH: str) -> Union[str, None]:
         'datamart_vars' : row.to_json()}, 
         columns=col_names)
 
-    print("NOTION QUERY DF:", notion_query_df)
+    #print("NOTION QUERY DF:", notion_query_df)
 
     # Save dataframe to specified folder
     output_file_path = f"{DATA_PATH}/notion_query_{timestamp}.csv"
     notion_query_df.to_csv(output_file_path, index=False)
 
-    return output_file_path
 
 
 
 
-
-def upload_notion(zip_filepath, notion_file_path, INPUT_PATH, ZIP_INPUT, OUTPUT_PATH):
+def upload_notion(zip_filepath, notion_file_path, INPUT_PATH, ZIP_OUTPUT, BACKUP_DIR):
     # Check that file exists
-    if not os.path.exists(OUTPUT_PATH):
-        os.makedirs(OUTPUT_PATH, exist_ok=True)
+    if not os.path.exists(INPUT_PATH):
+        os.makedirs(INPUT_PATH, exist_ok=True)
     
     # Read content of file
     with open(f"{INPUT_PATH}/{notion_file_path}", "rb") as f:
@@ -423,7 +369,7 @@ def upload_notion(zip_filepath, notion_file_path, INPUT_PATH, ZIP_INPUT, OUTPUT_
 
     # Create filenames
     timestamp = datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")
-    notion_dir = f"{OUTPUT_PATH}/{notion_hash_value}"
+    notion_dir = f"{BACKUP_DIR}/{notion_hash_value}"
     if os.path.isdir(notion_dir):
         # Get existing filename and load it
         notion_filename = os.listdir(notion_dir)[0]
@@ -451,21 +397,16 @@ def upload_notion(zip_filepath, notion_file_path, INPUT_PATH, ZIP_INPUT, OUTPUT_
             'accession_num': int(row['OriginalAccessionNumber']),
             'anonymized_accession_num': int(row['AnonymizedAccessionNumber']),
             'notion_filename': notion_filename,
-            'notion_filepath': f'{OUTPUT_PATH}/{notion_filename}'
+            'notion_filepath': f'{INPUT_PATH}/{notion_filename}'
         }
 
         case_key = int(row['OriginalAccessionNumber'])
         cases[case_key] = case
 
-        print(f"CASE OBJ CREATED - ID: {int(row['AnonymizedAccessionNumber'])}")
+        #print(f"CASE OBJ CREATED - ID: {int(row['AnonymizedAccessionNumber'])}")
 
     # Unzip file
-    unzip_file(f"{ZIP_INPUT}/test_zip.zip", f'{notion_dir}/{notion_filename}')
-
-
-
-
-
+    unzip_file(zip_filepath, f'{notion_dir}/{notion_filename}', ZIP_OUTPUT)
 
 
 
@@ -607,11 +548,10 @@ def upload_dicom(notion_filename: str, output_filename: str, file: UploadFile = 
     return {'filename': output_filename}
 
 
-def export_data():
+def export_data(FINAL_OUTPUT, ZIP_OUTPUT):
     env = os.path.dirname(os.path.abspath(__file__))
-    final_output = f'{env}/final_output'
-    if not os.path.exists(final_output):
-        os.makedirs(final_output, exist_ok=True)
+    if not os.path.exists(FINAL_OUTPUT):
+        os.makedirs(FINAL_OUTPUT, exist_ok=True)
     
     with db_session:
         cases = Case.select()
@@ -620,7 +560,7 @@ def export_data():
         # result = [dict(DicomSchema.from_orm(dicom)) for dicom in dicoms]
         
         # Save full database to data folder for backup
-        with open(f'{env}/zip_output/database.json', 'w') as json_fp:
+        with open(f'{ZIP_OUTPUT}/database.json', 'w') as json_fp:
             json.dump(result, json_fp)
         
         # Remove PHI from database json
@@ -633,12 +573,12 @@ def export_data():
                 case_dict['dicoms'][i] = deidentify_dicom_dict(dicom_dict)
 
         # Save deidentified databse to export folder
-        with open(f'{final_output}/database.json', 'w') as json_fp:
+        with open(f'{FINAL_OUTPUT}/database.json', 'w') as json_fp:
             json.dump(result, json_fp)
 
         df_data = []
-        if not os.path.exists(f'{final_output}/image'):
-            os.makedirs(f'{final_output}/image')
+        if not os.path.exists(f'{FINAL_OUTPUT}/image'):
+            os.makedirs(f'{FINAL_OUTPUT}/image')
 
         
         for case_dict, case_obj in zip(result, cases):
@@ -657,10 +597,8 @@ def export_data():
                 if os.path.exists(dicom_obj.local_cropped_filepath):
                     shutil.copyfile(
                         dicom_obj.local_cropped_filepath,
-                        f'{final_output}/image/{dicom_obj.local_cropped_filename}')
+                        f'{FINAL_OUTPUT}/image/{dicom_obj.local_cropped_filename}')
 
 
         db_df = pd.DataFrame(df_data)
-        db_df.to_csv(f'{final_output}/database.csv', index=False)
-
-    return result
+        db_df.to_csv(f'{FINAL_OUTPUT}/database.csv', index=False)
