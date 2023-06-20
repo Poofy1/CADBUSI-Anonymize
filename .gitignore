@@ -27,11 +27,11 @@ share/python-wheels/
 MANIFEST
 
 # USER DEFINED:
-*.zip
-*.csv
-*.png
-*.json
-*.dcm
+#*.zip
+#*.csv
+#*.png
+#*.json
+#.dcm
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
