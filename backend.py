@@ -80,9 +80,6 @@ def dicom_to_dict(dicom: pydicom.FileDataset |
 
 
 def deidentify_image(self, src_path, dest_path):  # pylint: disable=unused-argument
-
-	
-
     dest_dir_path, dest_filename = os.path.split(dest_path)
     print(f'SRC_PATH: {src_path} DEST_PATH: {dest_path}')
     print(f'SRC_PATH: {src_path} DEST_DIR_PATH: {dest_dir_path} DEST_FILENAME: {dest_filename}')
@@ -291,6 +288,10 @@ def deidentify_dicom_dict(dicom_dict):
 def unzip_file(filepath: str, notion_filepath: str):
     env = os.path.dirname(os.path.abspath(__file__))
     output_path = f"{env}/zip_output"
+    
+    if not os.path.exists(output_path):
+        os.makedirs(output_path, exist_ok=True)
+        
     filename = os.path.basename(filepath)
     print("Unzipping file:", filename)
 
@@ -325,28 +326,14 @@ def fetch_dicom_files():
             dicom_dict['notion_filepath'] = dicom_obj.case.notion_filepath
     return result
 
-@app.get('/media/{image_type}/{dicom_id}.png')
-async def image_source_endpoint(image_type: str, dicom_id: str):
-    with db_session:
-        dicom_obj = Dicom.get(id=int(dicom_id))
-        if image_type == 'source':
-            filepath = dicom_obj.local_source_filepath
-        elif image_type == 'cropped':
-            filepath = dicom_obj.local_cropped_filepath
-        else:
-            raise HTTPException(
-                status_code=400, detail=f'Image type {image_type} does not exist.')
-
-    if not os.path.exists(filepath):
-        raise HTTPException(status_code=500)
-
-    return FileResponse(filepath)
-
 
 def upload_datamart(file_path: str, DATA_PATH: str) -> Union[str, None]:
     # Check that file exists
+    if not os.path.exists(DATA_PATH):
+        os.makedirs(DATA_PATH, exist_ok=True)
+    
     if not os.path.exists(file_path):
-        print(f"No such file: '{file_path}'")
+        print('Missing datamart file')
         return None
 
     # Read content of file
@@ -418,19 +405,13 @@ def upload_datamart(file_path: str, DATA_PATH: str) -> Union[str, None]:
 
 
 
-@app.get('/zip_filenames')
-async def zip_filenames():
-    ingest_files = os.listdir(INGEST_ZIPFILE_PATH)
-    ingest_files = filter(lambda f: os.path.isfile(f'{INGEST_ZIPFILE_PATH}/{f}'), ingest_files)
-    ingest_files = filter(lambda f: f.endswith(".7z") or f.endswith(".zip"), ingest_files)
-    ingest_files = list(ingest_files)
-    return {'filenames': ingest_files}
-
-
-
 
 
 def upload_notion(zip_filepath, notion_file_path, INPUT_PATH, ZIP_INPUT, OUTPUT_PATH):
+    # Check that file exists
+    if not os.path.exists(OUTPUT_PATH):
+        os.makedirs(OUTPUT_PATH, exist_ok=True)
+    
     # Read content of file
     with open(f"{INPUT_PATH}/{notion_file_path}", "rb") as f:
         content = f.read()
@@ -629,6 +610,8 @@ def upload_dicom(notion_filename: str, output_filename: str, file: UploadFile = 
 def export_data():
     env = os.path.dirname(os.path.abspath(__file__))
     final_output = f'{env}/final_output'
+    if not os.path.exists(final_output):
+        os.makedirs(final_output, exist_ok=True)
     
     with db_session:
         cases = Case.select()
