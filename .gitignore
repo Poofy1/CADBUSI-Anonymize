@@ -6,6 +6,15 @@ __pycache__/
 # C extensions
 *.so
 
+# User-specific files
+*.png
+*.csv
+*.json
+*.ini
+*.zip
+*.pth
+*.dcm
+
 # Distribution / packaging
 .Python
 build/
@@ -25,13 +34,6 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-
-# USER DEFINED:
-*.zip
-*.csv
-*.png
-*.json
-*.dcm
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
