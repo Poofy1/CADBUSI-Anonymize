@@ -5,7 +5,9 @@ from PIL import Image
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from PIL import Image
+import pandas as pd
 import hashlib
+env = os.path.dirname(os.path.abspath(__file__))
 
 def anon_callback(ds, element):
     names_to_remove = [
@@ -41,6 +43,16 @@ def anon_callback(ds, element):
 
     if element.VR == "TM" and element.name not in names_to_anon_time:
         element.value = "000000"  # set time to zeros
+        
+    # Define a list of tags to remove
+    tags_to_remove = [
+        (0x0010, 0x0010),  # Patient Name
+    ]
+
+    # Remove the tags
+    for tag in tags_to_remove:
+        if tag in ds:
+            del ds[tag]
 
 
 
@@ -146,13 +158,18 @@ def deidentify_dicom( ds ):
 
 
 
-def create_dcm_filename( ds ):
-    patient_id = ds.PatientID.rjust(8,'0')
-    accession_number = ds.AccessionNumber.rjust(8,'0')
+def create_dcm_filename(ds, master_anon_map):
+    # Extract the necessary identifiers
+    accession_number = ds.AccessionNumber
 
+    # Find the anonymized values
+    anonymized_patient_id = master_anon_map.loc[master_anon_map[' OriginalAccessionNumber'] == accession_number, ' AnonymizedPatientID'].values[0]
+    anonymized_accession_number = master_anon_map.loc[master_anon_map[' OriginalAccessionNumber'] == accession_number, ' AnonymizedAccessionNumber'].values[0]
+
+    # Check the media type
     media_type = ds.file_meta[0x00020002]
-    is_video = str(media_type).find('Multi-frame')>-1
-    is_secondary = str(media_type).find('Secondary')>-1
+    is_video = str(media_type).find('Multi-frame') > -1
+    is_secondary = str(media_type).find('Secondary') > -1
 
     if is_video:
         media = 'video'
@@ -160,16 +177,23 @@ def create_dcm_filename( ds ):
         media = 'second'
     else:
         media = 'image'
-        
+    
     # Create a hash object
     hash_obj = hashlib.sha256()
-    hash_obj.update(ds.pixel_array)
+    hash_obj.update(ds.pixel_array.tobytes())  # Convert pixel_array to bytes before hashing
     
     image_hash = hash_obj.hexdigest()
     
-    filename = f'{media}_{patient_id}_{accession_number}_{image_hash}.dcm'
+    # Construct the filename using the anonymized identifiers
+    filename = f'{media}_{anonymized_patient_id:08}_{anonymized_accession_number:08}_{image_hash}.dcm'
 
-    return filename
+    # Anonymize the DICOM data
+    ds.PatientID = str(anonymized_patient_id).rjust(8, '0')  # assuming the anonymized ID is an integer
+    ds.AccessionNumber = str(anonymized_accession_number).rjust(8, '0')
+
+    return filename, ds  # return the modified DICOM dataset along with the filename
+
+
 
 
 def deidentify_dcm_files(directory_path, target_directory, save_png=False):
@@ -187,6 +211,11 @@ def deidentify_dcm_files(directory_path, target_directory, save_png=False):
             if file.lower().endswith(".dcm"):
                 dicom_files.append(os.path.join(root, file))
     
+    # Load the mapping files
+    df_master_anon_map = pd.read_csv(f"{env}/maps/master_anon_map.csv")
+    df_master_anon_map[' OriginalAccessionNumber'] = df_master_anon_map[' OriginalAccessionNumber'].astype(str)
+
+    
     for dicom_file in tqdm(dicom_files, total=len(dicom_files), desc="Processing DICOM files", unit="file"):
         # Read the DICOM file
         dataset = pydicom.dcmread(dicom_file)
@@ -195,13 +224,15 @@ def deidentify_dcm_files(directory_path, target_directory, save_png=False):
         media_type = dicom_media_type(dataset)
         if (media_type == 'image' and (0x0018, 0x6011) in dataset) or media_type == 'multi':
             
+            # Create a new filename
+            new_filename, dataset = create_dcm_filename(dataset, df_master_anon_map)
+            
             # De-identify the DICOM dataset
             dataset = deidentify_dicom(dataset)
             
-            #print(dataset)
+            print(dataset)
             
-            # Create a new filename
-            new_filename = create_dcm_filename(dataset)
+            return
             
             # Set the target path to write the DICOM file
             target_path = os.path.join(target_directory, new_filename)
@@ -229,15 +260,18 @@ def deidentify_dcm_files(directory_path, target_directory, save_png=False):
                     print(f"An error occurred while saving the PNG file: {e}")
 
 
-main_dir = 'D:/DATA/CASBUSI/new_batch_(delete_me)'
-zipped_dicom_path = f'{main_dir}/zip_files'
-unzipped_dicom_path = f'{main_dir}/unzipped_dicoms'
-deidentified_path = f'{main_dir}/deidentified'
+raw_data_dir = 'D:/DATA/CASBUSI/new_batch_(delete_me)'
+zipped_dicom_path = f'{raw_data_dir}/zip_files'
+unzipped_dicom_path = f'{raw_data_dir}/unzipped_dicoms'
+deidentified_path = f'{raw_data_dir}/deidentified'
 
 
 
 # Unzip everything
 unzip_files_in_directory(zipped_dicom_path, unzipped_dicom_path)
 
+# Add to anon map
+
+
 # Deidentify everything
-deidentify_dcm_files(main_dir, deidentified_path, save_png=True)
+deidentify_dcm_files(raw_data_dir, deidentified_path, save_png=True)
