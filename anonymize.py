@@ -5,6 +5,7 @@ from PIL import Image
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from PIL import Image
+import numpy as np
 import pandas as pd
 import hashlib
 env = os.path.dirname(os.path.abspath(__file__))
@@ -19,7 +20,27 @@ def anon_callback(ds, element):
         'Series Instance UID',
         'Private Creator',
         'Media Storage SOP Instance UID',
-        'Implementation Class UID'
+        'Implementation Class UID',
+        "Patient's Name",
+        "Referring Physician's Name",
+        "Acquisition DateTime",
+        "Institution Name",
+        "Station Name",
+        "Physician(s) of Record",
+        "Referenced SOP Class UID",
+        "Referenced SOP Instance UID",
+        "Device Serial Number",
+        "Patient Comments",
+        "Issuer of Patient ID",
+        "Study ID",
+        "Study Comments",
+        "Current Patient Location",
+        "Requested Procedure ID",
+        "Performed Procedure Step ID",
+        "Other Patient IDs",
+        "Operators' Name",
+        "Institutional Department Name",
+        "Manufacturer",
     ]
     
     names_to_anon_time = [
@@ -28,13 +49,9 @@ def anon_callback(ds, element):
         'Content Time',
     ]
     
-    if element.name in names_to_remove:
-        if element.VR == "UI":
-            element.value = pydicom.uid.generate_uid()
-        elif element.VR == "TM" and element.name in names_to_anon_time:
-            element.value = "000000"  # set time to zeros
-        else:
-            element.value = "anon"
+    if element.tag in ds:  # Check if the tag exists before attempting deletion
+        if element.name in names_to_remove:
+            del ds[element.tag]
 
     if element.VR == "DA":
         date = element.value
@@ -43,16 +60,7 @@ def anon_callback(ds, element):
 
     if element.VR == "TM" and element.name not in names_to_anon_time:
         element.value = "000000"  # set time to zeros
-        
-    # Define a list of tags to remove
-    tags_to_remove = [
-        (0x0010, 0x0010),  # Patient Name
-    ]
-
-    # Remove the tags
-    for tag in tags_to_remove:
-        if tag in ds:
-            del ds[tag]
+    
 
 
 
@@ -140,8 +148,7 @@ def deidentify_dicom( ds ):
 
     # crop patient info above US region 
     arr = ds.pixel_array
-        
-        
+    
     if is_video:
         arr[:,:y0] = 0
     else:
@@ -195,7 +202,44 @@ def create_dcm_filename(ds, master_anon_map):
 
 
 
+def process_single_dcm_file(dicom_file, target_directory, df_master_anon_map, save_png, png_directory):
+    # Read the DICOM file
+    dataset = pydicom.dcmread(dicom_file)
 
+    # Check media type and additional conditions
+    media_type = dicom_media_type(dataset)
+    if (media_type == 'image' and (0x0018, 0x6011) in dataset) or media_type == 'multi':
+        
+        # Create a new filename
+        new_filename, dataset = create_dcm_filename(dataset, df_master_anon_map)
+        
+        # De-identify the DICOM dataset
+        dataset = deidentify_dicom(dataset)
+        
+        # Set the target path to write the DICOM file
+        target_path = os.path.join(target_directory, new_filename)
+
+        # Make sure target directory exists
+        if not os.path.exists(os.path.dirname(target_path)):
+            os.makedirs(os.path.dirname(target_path))
+        
+        # Write the DICOM dataset to a new DICOM file
+        dataset.save_as(target_path)
+
+        # If save_png flag is True, save the image data as a PNG file
+        if save_png:
+            # Convert the Pixel Array data to a PIL Image object
+            image = Image.fromarray(dataset.pixel_array)
+
+            # Save the Image object as a PNG file
+            png_file_path = os.path.join(png_directory, new_filename.replace('.dcm', '.png'))
+            image.save(png_file_path, "PNG")
+    
+    return dicom_file
+
+    
+    
+    
 def deidentify_dcm_files(directory_path, target_directory, save_png=False):
     unzipped_path = os.path.join(directory_path, 'unzipped_dicoms')
     os.makedirs(target_directory, exist_ok=True)
@@ -203,6 +247,8 @@ def deidentify_dcm_files(directory_path, target_directory, save_png=False):
     if save_png:
         png_directory = os.path.join(directory_path, 'png_debug')
         os.makedirs(png_directory, exist_ok=True)
+    else:
+        png_directory = None
     
     # First, collect all the DICOM file paths
     dicom_files = []
@@ -215,63 +261,30 @@ def deidentify_dcm_files(directory_path, target_directory, save_png=False):
     df_master_anon_map = pd.read_csv(f"{env}/maps/master_anon_map.csv")
     df_master_anon_map[' OriginalAccessionNumber'] = df_master_anon_map[' OriginalAccessionNumber'].astype(str)
 
-    
-    for dicom_file in tqdm(dicom_files, total=len(dicom_files), desc="Processing DICOM files", unit="file"):
-        # Read the DICOM file
-        dataset = pydicom.dcmread(dicom_file)
-
-        # Check media type and additional conditions
-        media_type = dicom_media_type(dataset)
-        if (media_type == 'image' and (0x0018, 0x6011) in dataset) or media_type == 'multi':
-            
-            # Create a new filename
-            new_filename, dataset = create_dcm_filename(dataset, df_master_anon_map)
-            
-            # De-identify the DICOM dataset
-            dataset = deidentify_dicom(dataset)
-            
-            print(dataset)
-            
-            return
-            
-            # Set the target path to write the DICOM file
-            target_path = os.path.join(target_directory, new_filename)
-
-            # Make sure target directory exists
-            if not os.path.exists(os.path.dirname(target_path)):
-                os.makedirs(os.path.dirname(target_path))
-            
+    # Use ThreadPoolExecutor to process DICOM files in parallel
+    with ThreadPoolExecutor() as executor:
+        # Submit tasks to the executor
+        futures = {executor.submit(process_single_dcm_file, dicom_file, target_directory, df_master_anon_map, save_png, png_directory): dicom_file for dicom_file in dicom_files}
+        
+        # As each future is completed, retrieve the result
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing DICOM files"):
             try:
-                # Write the DICOM dataset to a new DICOM file
-                dataset.save_as(target_path)
-            except Exception as e:
-                print(f"An error occurred while saving the file: {e}")
-
-            # If save_png flag is True, save the image data as a PNG file
-            if save_png:
-                try:
-                    # Convert the Pixel Array data to a PIL Image object
-                    image = Image.fromarray(dataset.pixel_array)
-
-                    # Save the Image object as a PNG file
-                    png_file_path = os.path.join(png_directory, new_filename.replace('.dcm', '.png'))
-                    image.save(png_file_path, "PNG")
-                except Exception as e:
-                    print(f"An error occurred while saving the PNG file: {e}")
+                # Get the result of the future
+                result = future.result()
+            except Exception as exc:
+                print(f'An exception occurred: {exc}')
 
 
 raw_data_dir = 'D:/DATA/CASBUSI/new_batch_(delete_me)'
 zipped_dicom_path = f'{raw_data_dir}/zip_files'
 unzipped_dicom_path = f'{raw_data_dir}/unzipped_dicoms'
-deidentified_path = f'{raw_data_dir}/deidentified'
+deidentified_path = f'{raw_data_dir}/deidentified2'
 
 
 
 # Unzip everything
 unzip_files_in_directory(zipped_dicom_path, unzipped_dicom_path)
 
-# Add to anon map
-
 
 # Deidentify everything
-deidentify_dcm_files(raw_data_dir, deidentified_path, save_png=True)
+deidentify_dcm_files(raw_data_dir, deidentified_path, save_png=False)
