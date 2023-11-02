@@ -204,7 +204,7 @@ def create_dcm_filename(ds, master_anon_map):
 
 def process_single_dcm_file(dicom_file, target_directory, df_master_anon_map, save_png, png_directory):
     # Read the DICOM file
-    dataset = pydicom.dcmread(dicom_file)
+    dataset = pydicom.dcmread(dicom_file, force=True)
 
     # Check media type and additional conditions
     media_type = dicom_media_type(dataset)
