@@ -276,13 +276,13 @@ def deidentify_dcm_files(directory_path, unzipped_path, target_directory, save_p
 
 
 
-raw_data_dir = 'D:/DATA/CASBUSI/un_anonymized/'
-deidentified_path = f'{raw_data_dir}/anonymized'
-zipped_dicom_path = f'{raw_data_dir}/zip_files'
-unzipped_dicom_path = f'{raw_data_dir}/unzipped_dicoms'
+data_dir = 'D:/DATA/CASBUSI/'
+zipped_dicom_path = f'{data_dir}/zip_files'
+unzipped_dicom_path = f'{data_dir}/unzipped_dicoms'
+deidentified_path = f'{data_dir}/anonymized'
 
 # Unzip everything
 unzip_files_in_directory(zipped_dicom_path, unzipped_dicom_path)
 
 # Deidentify everything
-deidentify_dcm_files(raw_data_dir, unzipped_dicom_path, deidentified_path, save_png=False) # save_png is for debugging
+deidentify_dcm_files(data_dir, unzipped_dicom_path, deidentified_path, save_png=False) # save_png is for debugging
