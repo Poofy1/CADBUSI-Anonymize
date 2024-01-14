@@ -5,10 +5,11 @@ from PIL import Image
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from PIL import Image
-import numpy as np
 import pandas as pd
 import hashlib
 env = os.path.dirname(os.path.abspath(__file__))
+
+
 
 def anon_callback(ds, element):
     names_to_remove = [
@@ -61,8 +62,6 @@ def anon_callback(ds, element):
     if element.VR == "TM" and element.name not in names_to_anon_time:
         element.value = "000000"  # set time to zeros
     
-
-
 
 
 
@@ -240,8 +239,7 @@ def process_single_dcm_file(dicom_file, target_directory, df_master_anon_map, sa
     
     
     
-def deidentify_dcm_files(directory_path, target_directory, save_png=False):
-    unzipped_path = os.path.join(directory_path, 'unzipped_dicoms')
+def deidentify_dcm_files(directory_path, unzipped_path, target_directory, save_png=False):
     os.makedirs(target_directory, exist_ok=True)
     
     if save_png:
@@ -275,16 +273,16 @@ def deidentify_dcm_files(directory_path, target_directory, save_png=False):
                 print(f'An exception occurred: {exc}')
 
 
-raw_data_dir = 'D:/DATA/CASBUSI/new_batch_(delete_me)'
+
+
+
+raw_data_dir = 'D:/DATA/CASBUSI/un_anonymized/'
+deidentified_path = f'{raw_data_dir}/anonymized'
 zipped_dicom_path = f'{raw_data_dir}/zip_files'
 unzipped_dicom_path = f'{raw_data_dir}/unzipped_dicoms'
-deidentified_path = f'{raw_data_dir}/deidentified2'
-
-
 
 # Unzip everything
 unzip_files_in_directory(zipped_dicom_path, unzipped_dicom_path)
 
-
 # Deidentify everything
-deidentify_dcm_files(raw_data_dir, deidentified_path, save_png=False)
+deidentify_dcm_files(raw_data_dir, unzipped_dicom_path, deidentified_path, save_png=False) # save_png is for debugging
