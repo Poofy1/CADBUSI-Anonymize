@@ -379,8 +379,8 @@ def prepare_data(filtered_data, output_file):
         'Path_Note' : 'Path_Desc'
     })
     
-    df2.to_csv(f"{env}/maps/master_anon_map2.csv", index=False)
-    df3.to_csv(f"{env}/maps/master_biop_anon2.csv", index=False)
+    df2.to_csv(f"{env}/maps/master_anon_map.csv", index=False)
+    df3.to_csv(f"{env}/maps/master_biop_anon.csv", index=False)
     output_df.to_csv(output_file, index=False)
     
     print("Finished Output")
@@ -394,7 +394,7 @@ def prepare_data(filtered_data, output_file):
 
 # Execution 
 input_file = f'{env}/input_data/data_complete.csv'
-output_file = f'{env}/output/total_cases_anon2.csv'
+output_file = f'{env}/output/total_cases_anon.csv'
 
 
 filtered_data = filter_data(input_file)
