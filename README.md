@@ -26,6 +26,15 @@ This script de-identifies and anonymizes DICOM files, a common format for medica
 - Removes sensitive patient information from DICOM metadata, images, and videos.
 - Optionally saving anonymized images in PNG format for debugging.
 
+### 2. Additional `/Tools/`
+
+This folder provides you with a toolbox of scripts that you may or may not use to assist in anonymizing or analyzing the raw data.
+
+- `anon_map_validation.py`: Makes sure the raw data is consistent with our `master_anon_map` output.
+- `dicom_debug.py`: Used for displaying dicom images to find errors during processing.
+- `get_stats`: Finds statistics on the `filtered_data`.
+- `xlsx_to_csv.py`: File converter.
+
 ## Usage
 
 1. **Data Preparation**: 
@@ -44,4 +53,4 @@ This script de-identifies and anonymizes DICOM files, a common format for medica
    - Specify the zip file directory and your desired output locations.
    - This script will output 2 folders:
       - A folder of unzipped dicom files, these are still identifiable.
-      - A folder of anonymized dicom files which will be used by the [CADBUSI-Database](https://github.com/Poofy1/CADBUSI-Database)
+      - A folder of anonymized dicom files that will be used by the [CADBUSI-Database](https://github.com/Poofy1/CADBUSI-Database)
