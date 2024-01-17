@@ -3,7 +3,7 @@ import os
 env = os.path.dirname(os.path.abspath(__file__))
 
 # Load data
-file_path = f'{env}/input_file/US_Guided_Exams_and_Biopsies.csv'  # Please make sure the file path is correct
+file_path = f'{env}/input_file/filtered_data.csv'  # Please make sure the file path is correct
 data = pd.read_csv(file_path)
 
 
