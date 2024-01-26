@@ -4,8 +4,12 @@ This repository contains scripts for processing and anonymizing ultrasound image
 
 ## Requirements
 
-- Python 3.x or higher.
-- To install dependencies, run: `pip install -r requirements.txt`.
+- Python 3.8
+- Install required Python packages with pip:
+
+```
+pip install -r requirements.txt
+```
 
 ## Scripts Overview
 
@@ -26,7 +30,7 @@ This script de-identifies and anonymizes DICOM files, a common format for medica
 - Removes sensitive patient information from DICOM metadata, images, and videos.
 - Optionally saving anonymized images in PNG format for debugging.
 
-### 2. Additional `/Tools/`
+### 3. Additional `/Tools/`
 
 This folder provides you with a toolbox of scripts that you may or may not use to assist in anonymizing or analyzing the raw data.
 
