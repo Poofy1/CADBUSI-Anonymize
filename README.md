@@ -54,3 +54,10 @@ This folder provides you with a toolbox of scripts that you may or may not use t
    - This script will output 2 folders:
       - A folder of unzipped dicom files, these are still identifiable.
       - A folder of anonymized dicom files that will be used by the [CADBUSI-Database](https://github.com/Poofy1/CADBUSI-Database)
+    
+## Data Pipeline
+- [CADBUSI-Anonymize](https://github.com/Poofy1/CADBUSI-Anonymize)
+- [CADBUSI-Database](https://github.com/Poofy1/CADBUSI-Database)
+- [CADBUSI-Training](https://github.com/Poofy1/CADBUSI-Training)
+![CASBUSI Pipeline](https://raw.githubusercontent.com/Poofy1/CADBUSI-Database/main/pipeline/CADBUSI-Pipeline.png)
+
