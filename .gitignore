@@ -15,6 +15,14 @@ __pycache__/
 *.pth
 *.dcm
 
+
+# Environment files with secrets
+.env.secret
+.env.*.secret
+*.crt
+*.key
+*.pem
+
 # Distribution / packaging
 .Python
 build/
