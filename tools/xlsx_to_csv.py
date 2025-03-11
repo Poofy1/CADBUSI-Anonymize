@@ -1,5 +1,5 @@
 import pandas as pd
-import sys, os
+import os
 env = os.path.dirname(os.path.abspath(__file__))
 
 def xlsx_to_csv(xlsx_file, csv_file):

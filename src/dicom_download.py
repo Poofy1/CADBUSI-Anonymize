@@ -249,31 +249,23 @@ def cleanup_resources(delete_cloud_run=False):
             print(f"Failed to delete container image: {e}")
 
 
-def main():
+
+
+
+def dicom_download_remote_start(csv_file = None, deploy = False, cleanup = False):
     global CLOUD_RUN_URL
     
-    parser = argparse.ArgumentParser(description='Process DICOM URLs through Pub/Sub and Cloud Run.')
-    parser.add_argument('--csv', help='Path to CSV file with DICOM URLs')
-    parser.add_argument('--deploy', action='store_true', help='Deploy FastAPI to Cloud Run')
-    parser.add_argument('--cleanup', action='store_true', help='Clean up Pub/Sub resources')
-    parser.add_argument('--cleanup-all', action='store_true', help='Clean up ALL resources (Pub/Sub and Cloud Run)')
-    
-    args = parser.parse_args()
-    
     # Handle cleanup first - this can be run without other flags
-    if args.cleanup_all:
+    if cleanup:
         cleanup_resources(delete_cloud_run=True)
-        return 0
-    elif args.cleanup:
-        cleanup_resources(delete_cloud_run=False)
         return 0
     
     # For other operations, we need a CSV file
-    if not args.csv and (args.deploy):
+    if not csv_file and (deploy):
         print("Error: CSV file is required for deployment or setup operations")
         return 1
     
-    if args.deploy:
+    if deploy:
         # Build and push the image first, then deploy to Cloud Run
         build_and_push_image()
         deploy_cloud_run()
@@ -282,18 +274,29 @@ def main():
         CLOUD_RUN_URL = f"https://{CLOUD_RUN_SERVICE}-243026470979.{REGION}.run.app"
         print(f"Using existing Cloud Run URL: {CLOUD_RUN_URL}")
     
-    if args.deploy:
+    if deploy:
         setup_pubsub()
     
-    if args.csv:
-        if os.path.exists(args.csv):
-            process_csv_file(args.csv)
+    if csv_file:
+        if os.path.exists(csv_file):
+            process_csv_file(csv_file)
         else:
-            print(f"Error: CSV file not found: {args.csv}")
+            print(f"Error: CSV file not found: {csv_file}")
             return 1
     
     return 0
 
+def main():
+    global CLOUD_RUN_URL
+    
+    parser = argparse.ArgumentParser(description='Process DICOM URLs through Pub/Sub and Cloud Run.')
+    parser.add_argument('--csv', help='Path to CSV file with DICOM URLs')
+    parser.add_argument('--deploy', action='store_true', help='Deploy FastAPI to Cloud Run')
+    parser.add_argument('--cleanup', action='store_true', help='Clean up ALL resources (Pub/Sub and Cloud Run)')
+    
+    args = parser.parse_args()
+    
+    dicom_download_remote_start(args.csv, args.deploy, args.cleanup)
 
 if __name__ == "__main__":
     main()

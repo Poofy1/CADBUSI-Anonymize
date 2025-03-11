@@ -2,3 +2,5 @@ pydicom
 Pillow
 pandas
 tqdm
+pyffx
+git+https://github.com/Poofy1/storage-adapter.git

@@ -22,6 +22,7 @@ __pycache__/
 *.crt
 *.key
 *.pem
+*.pkl
 
 # Distribution / packaging
 .Python

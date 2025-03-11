@@ -1,5 +1,6 @@
 import pandas as pd
 from tqdm import tqdm
+import concurrent.futures
 import os
 env = os.path.dirname(os.path.abspath(__file__))
 
@@ -45,43 +46,25 @@ def match_biops_to_exam( df, exam_index, days_before = -30, days_after = 120):
         matches_right_ind: list of indices of matching right biopsies, ...
     '''
     
-    exam_date = df.loc[exam_index,'Date']
-    exam_lat = df.loc[exam_index,'Laterality']
-    
-    df_biops = df[ df['BIOPSY'] ]
-    biop_dates = df_biops['Date']
-    biop_lats = df_biops['Laterality']
-    
-    days = (biop_dates-exam_date).dt.total_seconds()/86400 # convert to days
-    matches_left_df = df_biops[(days >= days_before ) & (days <= days_after) & (biop_lats=='LEFT')]
-    matches_right_df = df_biops[(days >= days_before ) & (days <= days_after) & (biop_lats=='RIGHT')]
-    matches_left_ind = matches_left_df.index.to_list()
-    matches_right_ind = matches_right_df.index.to_list()
+    exam_date = df.loc[exam_index, 'Date']
+    exam_lat = df.loc[exam_index, 'Laterality']
 
-    if len(matches_left_ind)==0: # find time to next left future match
-        days_left = days[ biop_lats=='LEFT' ]
-        days_left = days_left[ days_left >= 0].to_list()
-        if len(days_left)==0:
+    df_biops = df[df['BIOPSY']]
+    days = (df_biops['Date'] - exam_date).dt.total_seconds() / 86400   
 
-            matches_left_ind = [-9999]
-        else:
-            matches_left_ind = [-max(days_left)]
+    masks = {
+        'LEFT': (days >= days_before) & (days <= days_after) & (df_biops['Laterality'] == 'LEFT'),
+        'RIGHT': (days >= days_before) & (days <= days_after) & (df_biops['Laterality'] == 'RIGHT')
+    }
 
-    if len(matches_right_ind)==0:
-        days_right = days[ biop_lats=='RIGHT']
-        days_right = days_right[ days_right >= 0].to_list()
-        if len(days_right)==0:
-            matches_right_ind = [-9999]
-        else:
-            matches_right_ind = [-max(days_right)]
+    matches = {lat: df_biops[mask].index.tolist() for lat, mask in masks.items()}
 
-    if exam_lat=='LEFT':
-        matches_right_ind = []
-    if exam_lat=='RIGHT':
-        matches_left_ind = []
+    for lat in ['LEFT', 'RIGHT']:
+        if not matches[lat]:
+            future_days = days[(df_biops['Laterality'] == lat) & (days >= 0)]
+            matches[lat] = [-future_days.max()] if len(future_days) > 0 else [-9999]
 
-    return matches_left_ind, matches_right_ind
-
+    return matches[exam_lat] if exam_lat in matches else [], matches[exam_lat] if exam_lat in matches else []
 
 
 
@@ -89,22 +72,6 @@ def match_biops_to_exam( df, exam_index, days_before = -30, days_after = 120):
 
 def filter_data(input_file):
     df = pd.read_csv(input_file, low_memory=False)
-
-    cols_to_keep = ['Patient Clinic Nbr',
-                    'Accession Nbr Id',
-                    'Final Status Dt',
-                    'PATIENT_GENDER_CODE',
-                    'PRoc_Name',
-                    'SCORE_CD',
-                    'LOCATION_SITE_NAME', 
-                    'Age at Final Status Date',
-                    'PATIENT_RACE_NAME', 
-                    'PATIENT_ETHNICITY_NAME',
-                    'DENSITY_TXT (Custom SQL Query2)',
-                    'A1_PATHOLOGY_TXT',
-                    'A1_PATHOLOGY_CATEGORY_DESC']
-
-    df = df[cols_to_keep]
 
     rename_dict = {'Patient Clinic Nbr':'PatientID',
                 'Accession Nbr Id':'Accession',
@@ -119,6 +86,8 @@ def filter_data(input_file):
                 'DENSITY_TXT (Custom SQL Query2)':"Density",
                 'A1_PATHOLOGY_TXT':"Path_Note",
                 'A1_PATHOLOGY_CATEGORY_DESC':"Pathology"}
+    
+    df = df.rename(columns=rename_dict)
 
     df.rename( columns = rename_dict, inplace = True )
     df = df[ ~(df['Location']=='UNKNOWN') ]
@@ -131,22 +100,17 @@ def filter_data(input_file):
     df['Date']= pd.to_datetime(df['Date'])
     df['Accession'] = df['Accession'].astype(int)
     df = add_laterality_column(df, 'Procedure')
-
-
-    df_slice = df[ df['PatientID'] == 736585]
-    exam_index = 1
-    left,right = match_biops_to_exam( df_slice, exam_index )
+    
+    #df.to_csv(f'{env}/testing.csv')
 
     # find matching biopsies for every exam
     all_exam_indices = df[ ~df['BIOPSY'] ].index.to_list()
+
     biopsy_mapping = {}
-
-
     for exam_index in tqdm(all_exam_indices):
-        patient_id = df.loc[exam_index,'PatientID']
-        df_slice = df[ df['PatientID'] == patient_id]
-        left,right = match_biops_to_exam( df_slice, exam_index )
-        biopsy_mapping[exam_index] = {'LEFT':left, 'RIGHT':right}
+        patient_id = df.loc[exam_index, 'PatientID']
+        df_slice = df[df['PatientID'] == patient_id]
+        biopsy_mapping[exam_index] = match_biops_to_exam(df_slice, exam_index)
 
     # now use mapping dictionary to construct dataframe of exams and matching biopsies 
     df_match = pd.DataFrame(columns=['PatientID', 
@@ -186,10 +150,10 @@ def filter_data(input_file):
         left_matches = biopsy_mapping[exam_index]['LEFT']
         right_matches = biopsy_mapping[exam_index]['RIGHT']
 
-        # refactor this code, lots of duplication in left and right
-        if Exam_Laterality in ['LEFT','BILATERAL']: # loop over left matches and add one row for each match
-            Biop_Laterality = 'LEFT' 
-            for biop_index in left_matches:
+        def process_matches(matches, laterality):
+            df_match = pd.DataFrame()
+            
+            for biop_index in matches:
                 if biop_index < 0:
                     Time_Biop = biop_index
                     Biop_Accession = None
@@ -206,6 +170,9 @@ def filter_data(input_file):
                     Biop_Modality = biop_modality( Biop_Procedure )
                     Biop_Path_Note = df.loc[biop_index, 'Path_Note']
                     Biop_Pathology = df.loc[biop_index, 'Pathology']
+                    
+                    print(f"{Biop_Accession}, {Biop_Date}, {Exam_Date}")
+                
                 new_row = {'PatientID':[PatientID],
                         'Accession':[Accession],
                         'Age':[Age],
@@ -217,54 +184,25 @@ def filter_data(input_file):
                         'Exam_Date':[Exam_Date],
                         'Exam_Laterality':[Exam_Laterality],
                         'Time_Biop':[Time_Biop],
-                        'Biop_Laterality':[Biop_Laterality], 
+                        'Biop_Laterality':[laterality], 
                         'Biop_Accession':[Biop_Accession],
                         'Biop_Date':[Biop_Date],
                         'Biop_Procedure':[Biop_Procedure],
                         'Biop_Modality':[Biop_Modality],
                         'Path_Note':[Biop_Path_Note],
                         'Pathology':[Biop_Pathology]}
-                df_temp = pd.DataFrame( new_row )
-                df_match = pd.concat( [df_match, df_temp] )   
-        if Exam_Laterality in ['RIGHT','BILATERAL']: # loop over left matches and add one row for each match
-            Biop_Laterality = 'RIGHT' 
-            for biop_index in right_matches:
-                if biop_index < 0:
-                    Time_Biop = biop_index
-                    Biop_Accession = None
-                    Biop_Date = None
-                    Biop_Procedure = 'No Match'
-                    Biop_Modality = None
-                    Biop_Path_Note = None
-                    Biop_Pathology = None
-                else:
-                    Biop_Date = df.loc[biop_index,'Date']
-                    Time_Biop = (Biop_Date - Exam_Date).total_seconds()/86400
-                    Biop_Accession = df.loc[biop_index,'Accession']
-                    Biop_Procedure = df.loc[biop_index,'Procedure']
-                    Biop_Modality = biop_modality( Biop_Procedure )
-                    Biop_Path_Note = df.loc[biop_index, 'Path_Note']
-                    Biop_Pathology = df.loc[biop_index, 'Pathology']
-                new_row = {'PatientID':[PatientID],
-                        'Accession':[Accession],
-                        'Age':[Age],
-                        'Race':[Race],
-                        'Ethnicity':[Ethnicity],
-                        'Density':[Density],
-                        'Gender':[Gender],
-                        'BI-RADS':[BIRADS],
-                        'Exam_Date':[Exam_Date],
-                        'Exam_Laterality':[Exam_Laterality],
-                        'Time_Biop':[Time_Biop],
-                        'Biop_Laterality':[Biop_Laterality], 
-                        'Biop_Accession':[Biop_Accession],
-                        'Biop_Date':[Biop_Date],
-                        'Biop_Procedure':[Biop_Procedure],
-                        'Biop_Modality':[Biop_Modality],
-                        'Path_Note':[Biop_Path_Note],
-                        'Pathology':[Biop_Pathology]}
-                df_temp = pd.DataFrame( new_row )
-                df_match = pd.concat( [df_match, df_temp] )   
+                df_temp = pd.DataFrame(new_row)
+                df_match = pd.concat([df_match, df_temp])
+            
+            return df_match
+
+        if Exam_Laterality in ['LEFT','BILATERAL']:
+            left_matches = biopsy_mapping[exam_index]['LEFT']
+            df_match = pd.concat([df_match, process_matches(left_matches, 'LEFT')])
+        
+        if Exam_Laterality in ['RIGHT','BILATERAL']:
+            right_matches = biopsy_mapping[exam_index]['RIGHT']
+            df_match = pd.concat([df_match, process_matches(right_matches, 'RIGHT')])
 
 
 
