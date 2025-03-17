@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 
-import argparse
 import csv
-import json
 import os
 import subprocess
-import time
 import tqdm
 from google.cloud import pubsub_v1
 

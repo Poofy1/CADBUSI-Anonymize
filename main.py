@@ -50,9 +50,8 @@ def main():
         df = run_breast_imaging_query(limit=limit)
         
         # Save results to CSV
-        output_file = 'dicom_urls.csv'
-        print(f"\nSaving results to {output_file}...")
-        df.to_csv(output_file, index=False)
+        print(f"\nSaving results to {dicom_query_file}...")
+        df.to_csv(dicom_query_file, index=False)
         print(f"Results successfully saved to {output_file}")
         
         
