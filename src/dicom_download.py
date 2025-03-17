@@ -87,7 +87,7 @@ def deploy_cloud_run():
         f"--vpc-connector={vpc_connector}",
         "--vpc-egress=all-traffic",
         "--timeout=3000",
-        "--memory=1024Mi",
+        "--memory=2048Mi",
     ]
     
     try:
