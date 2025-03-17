@@ -19,6 +19,7 @@ def parse_arguments():
     
     # Download arguments
     parser.add_argument('--deploy', action='store_true', help='Deploy FastAPI to Cloud Run')
+    parser.add_argument('--rerun', action='store_true', help='Send message to pre-deployed FastAPI on Cloud Run')
     parser.add_argument('--cleanup', action='store_true', help='Clean up resources')
     
     # Anonymize arguments
@@ -52,12 +53,10 @@ def main():
         # Save results to CSV
         print(f"\nSaving results to {dicom_query_file}...")
         df.to_csv(dicom_query_file, index=False)
-        print(f"Results successfully saved to {output_file}")
-        
-        
+
         # Next process / simplify that data (wip)
     
-    elif args.deploy or args.cleanup:
+    elif args.deploy or args.cleanup or args.rerun:
         dicom_download_remote_start(dicom_query_file, args.deploy, args.cleanup)
     elif args.anon:
 
