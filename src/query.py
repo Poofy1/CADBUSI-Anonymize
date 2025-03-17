@@ -72,16 +72,22 @@ def run_breast_imaging_query(limit=None):
     
     return df
 
-# With limit
-print("Starting breast imaging query process...")
-start_time = time.time()
-df_limited = run_breast_imaging_query(limit=10)
 
-# Save to CSV
-output_file = 'dicom_urls.csv'
-print(f"\nSaving results to {output_file}...")
-df_limited.to_csv(output_file, index=False)
-end_time = time.time()
-total_duration = end_time - start_time
 
-print(f"Results successfully saved to {output_file}")
+
+
+def run_query():
+  # With limit
+  print("Starting breast imaging query process...")
+  start_time = time.time()
+  df_limited = run_breast_imaging_query(limit=10)
+
+  # Save to CSV
+  output_file = 'dicom_query.csv'
+  print(f"\nSaving results to {output_file}...")
+  df_limited.to_csv(output_file, index=False)
+  end_time = time.time()
+  total_duration = end_time - start_time
+
+  print(f"Results successfully saved to {output_file}")
+  print(f"Total time: {total_duration}")

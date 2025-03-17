@@ -3,4 +3,6 @@ Pillow
 pandas
 tqdm
 pyffx
+google-cloud-pubsub
+google-cloud-bigquery
 git+https://github.com/Poofy1/storage-adapter.git

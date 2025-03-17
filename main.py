@@ -18,18 +18,21 @@ def parse_arguments():
     parser.add_argument('--query', help='Run query with optional limit parameter (e.g., limit=10)')
     
     # Download arguments
-    parser.add_argument('--csv', help='Path to CSV file with DICOM URLs for downloading')
     parser.add_argument('--deploy', action='store_true', help='Deploy FastAPI to Cloud Run')
     parser.add_argument('--cleanup', action='store_true', help='Clean up resources')
     
     # Anonymize arguments
-    parser.add_argument('--anonymize', help='Path to directory with DICOMs to anonymize')
+    parser.add_argument('--anon', action='store_true', help='Path to directory with DICOMs to anonymize')
     
     return parser.parse_args()
 
 def main():
     """Main entry point for the script."""
     args = parse_arguments()
+    
+    
+    dicom_query_file = f'{env}/dicom_query.csv'
+    
     
     # Handle query command
     if args.query is not None:
@@ -55,22 +58,21 @@ def main():
         
         # Next process / simplify that data (wip)
     
-    elif args.download:
-        dicom_download_remote_start(args.csv, args.deploy, args.cleanup)
-    elif args.anonymize:
+    elif args.deploy or args.cleanup:
+        dicom_download_remote_start(dicom_query_file, args.deploy, args.cleanup)
+    elif args.anon:
 
-        input_file = f'{env}/dicom_urls.csv'
+        
         output_file = f'{env}/encrypted_output.csv'
         key_output = f'{env}/encryption_key.pkl'
-        key = encrypt_ids(input_file, output_file, key_output)
+        key = encrypt_ids(dicom_query_file, output_file, key_output)
         
         input_dicom_path = f'{env}/dicoms'
         deidentified_path = f'{env}/anonymized'
-        deidentify_dcm_files(data_dir, input_dicom_path, deidentified_path, key, save_png=True)
+        deidentify_dcm_files(env, input_dicom_path, deidentified_path, key, save_png=True)
     
     else:
         print("No action specified. Use --help for available options.")
-        sys.exit(1)
 
 if __name__ == "__main__":
     main()

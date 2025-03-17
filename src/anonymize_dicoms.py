@@ -5,8 +5,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from PIL import Image
 import hashlib
+from src.encrypt_keys import *
 env = os.path.dirname(os.path.abspath(__file__))
-from encrypt_keys import encrypt_single_id
+
 
 
 def anon_callback(ds, element):
@@ -62,13 +63,16 @@ def anon_callback(ds, element):
     
 
 def dicom_media_type(dataset):
-    type = str(dataset.file_meta[0x00020002].value)
-    if type == '1.2.840.10008.5.1.4.1.1.6.1': # single ultrasound image
-        return 'image'
-    elif type == '1.2.840.10008.5.1.4.1.1.3.1': # multi-frame ultrasound image
-        return 'multi'
+    if hasattr(dataset, 'file_meta') and (0x00020002) in dataset.file_meta:
+        type = str(dataset.file_meta[0x00020002].value)
+        if type == '1.2.840.10008.5.1.4.1.1.6.1':  # single ultrasound image
+            return 'image'
+        elif type == '1.2.840.10008.5.1.4.1.1.3.1':  # multi-frame ultrasound image
+            return 'multi'
+        else:
+            return 'other'  # something else
     else:
-        return 'other' # something else
+        return 'unknown'
 
 
 def deidentify_dicom(ds):
@@ -119,17 +123,15 @@ def deidentify_dicom(ds):
     return ds
 
 
-def create_dcm_filename(ds, key, encrypted_ids=None):
-    if encrypted_ids is None:
-        encrypted_ids = set()
+def create_dcm_filename(ds, key):
         
     # Extract the necessary identifiers
     accession_number = ds.AccessionNumber
     patient_id = ds.PatientID
-
+    
     # Encrypt identifiers using the new method
-    anonymized_patient_id = encrypt_single_id(key, patient_id, encrypted_ids)
-    anonymized_accession_number = encrypt_single_id(key, accession_number, encrypted_ids)
+    anonymized_patient_id = encrypt_single_id(key, patient_id)
+    anonymized_accession_number = encrypt_single_id(key, accession_number)
 
     # Check the media type
     media_type = ds.file_meta[0x00020002]
@@ -172,7 +174,7 @@ def create_dcm_filename(ds, key, encrypted_ids=None):
     return filename, ds  # return the modified DICOM dataset along with the filename
 
 
-def process_single_dcm_file(dicom_file, target_directory, encryption_key, encrypted_ids, save_png, png_directory):
+def process_single_dcm_file(dicom_file, target_directory, encryption_key, save_png, png_directory):
     # Read the DICOM file
     dataset = pydicom.dcmread(dicom_file, force=True)
 
@@ -181,7 +183,7 @@ def process_single_dcm_file(dicom_file, target_directory, encryption_key, encryp
     if (media_type == 'image' and (0x0018, 0x6011) in dataset) or media_type == 'multi':
         
         # Create a new filename using encryption
-        new_filename, dataset = create_dcm_filename(dataset, encryption_key, encrypted_ids)
+        new_filename, dataset = create_dcm_filename(dataset, encryption_key)
         
         # De-identify the DICOM dataset
         dataset = deidentify_dicom(dataset)
@@ -207,7 +209,6 @@ def process_single_dcm_file(dicom_file, target_directory, encryption_key, encryp
     
     return dicom_file
 
-
 def deidentify_dcm_files(directory_path, unzipped_path, target_directory, encryption_key, save_png=False):
     os.makedirs(target_directory, exist_ok=True)
     
@@ -224,13 +225,10 @@ def deidentify_dcm_files(directory_path, unzipped_path, target_directory, encryp
             if file.lower().endswith(".dcm"):
                 dicom_files.append(os.path.join(root, file))
 
-    # Maintain a set of encrypted IDs to prevent duplicates
-    encrypted_ids = set()
-
     # Use ThreadPoolExecutor to process DICOM files in parallel
     with ThreadPoolExecutor() as executor:
         # Submit tasks to the executor
-        futures = {executor.submit(process_single_dcm_file, dicom_file, target_directory, encryption_key, encrypted_ids, 
+        futures = {executor.submit(process_single_dcm_file, dicom_file, target_directory, encryption_key, 
                                  save_png, png_directory): dicom_file for dicom_file in dicom_files}
         
         # As each future is completed, retrieve the result
@@ -240,4 +238,3 @@ def deidentify_dcm_files(directory_path, unzipped_path, target_directory, encryp
                 result = future.result()
             except Exception as exc:
                 print(f'An exception occurred: {exc}')
-

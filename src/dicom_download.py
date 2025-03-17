@@ -38,8 +38,7 @@ GCS_STAGE = f"gs://shared-aif-bucket-87d1/cloudbuild_stage"
 CLOUD_RUN_URL = None
 
 
-publisher = pubsub_v1.PublisherClient()
-topic_path = publisher.topic_path(PROJECT_ID, TOPIC_NAME)
+
 
 
 def build_and_push_image():
@@ -159,7 +158,10 @@ def setup_pubsub():
 
 
 def publish_message(url):
-    future = publisher.publish(topic_path, data=url.encode("utf-8"))
+    global PUBLISHER
+    global TOPIC_PATH
+    
+    future = PUBLISHER.publish(TOPIC_PATH, data=url.encode("utf-8"))
     return future
 
 def process_csv_file(csv_file):
@@ -254,6 +256,12 @@ def cleanup_resources(delete_cloud_run=False):
 
 def dicom_download_remote_start(csv_file = None, deploy = False, cleanup = False):
     global CLOUD_RUN_URL
+    global PUBLISHER
+    global TOPIC_PATH
+    
+    
+    PUBLISHER = pubsub_v1.PublisherClient()
+    TOPIC_PATH = PUBLISHER.topic_path(PROJECT_ID, TOPIC_NAME)
     
     # Handle cleanup first - this can be run without other flags
     if cleanup:
@@ -285,18 +293,3 @@ def dicom_download_remote_start(csv_file = None, deploy = False, cleanup = False
             return 1
     
     return 0
-
-def main():
-    global CLOUD_RUN_URL
-    
-    parser = argparse.ArgumentParser(description='Process DICOM URLs through Pub/Sub and Cloud Run.')
-    parser.add_argument('--csv', help='Path to CSV file with DICOM URLs')
-    parser.add_argument('--deploy', action='store_true', help='Deploy FastAPI to Cloud Run')
-    parser.add_argument('--cleanup', action='store_true', help='Clean up ALL resources (Pub/Sub and Cloud Run)')
-    
-    args = parser.parse_args()
-    
-    dicom_download_remote_start(args.csv, args.deploy, args.cleanup)
-
-if __name__ == "__main__":
-    main()
