@@ -1,12 +1,12 @@
 import logging
-import re
 import io
+import tempfile
+import os
 import sys
 import base64
 import json
 from typing import Union
 from typing import Dict
-from fastapi.logger import logger
 from fastapi import FastAPI
 from starlette.status import HTTP_204_NO_CONTENT
 from fastapi.responses import JSONResponse
@@ -14,9 +14,6 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.base import RequestResponseEndpoint
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.middleware.base import RequestResponseEndpoint
-from google.cloud.logging.handlers import CloudLoggingFilter
 
 # Dicom imports
 import requests
@@ -25,60 +22,21 @@ from requests.structures import CaseInsensitiveDict
 from requests_toolbelt import MultipartDecoder
 from google.cloud import storage
 import google.auth.transport.requests
-
-
-# Initialize Google Cloud Logging client
-import google.cloud.logging
 import google.oauth2.id_token
-import google.auth.transport.requests
 
+# Configure standard Python logging (Cloud Run captures stdout/stderr automatically)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger("dicom-processor")
 
-# Create a custom logging filter
-class GoogleCloudLogFilter(CloudLoggingFilter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        """Add HTTP request and Cloud Trace context to log records."""
-        record.http_request = self._get_http_request_info(record)
-        record.trace, record.span_id = self._get_trace_info(record)
-        return super().filter(record)
+app = FastAPI()
 
-    def _get_http_request_info(self, record) -> Dict:
-        """Extract HTTP request information from the record."""
-        request = record.__dict__.get("request", None)
-        if not request:
-            return {}
-
-        return {
-            "requestMethod": request.method,
-            "requestUrl": request.url.path,
-            "requestSize": sys.getsizeof(request),
-            "remoteIp": request.client.host,
-            "protocol": request.url.scheme,
-            "referrer": request.headers.get("referrer"),
-            "userAgent": request.headers.get("user-agent"),
-        }
-
-    def _get_trace_info(self, record) -> tuple[str, str]:
-        """Extract Cloud Trace context from the record."""
-        trace = record.__dict__.get("cloud_trace_context", "")
-        split_header = trace.split("/", 1)
-        trace = (
-            f"projects/{self.project}/traces/{split_header[0]}" if split_header else ""
-        )
-        span_id = (
-            re.findall(r"^\w+", split_header[1])[0] if len(split_header) > 1 else ""
-        )
-        return trace, span_id
-
-
-# --- Middleware ---
-class LoggingMiddleware(BaseHTTPMiddleware):
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
-        # Store Cloud Trace context in the request state
-        request.state.cloud_trace_context = request.headers.get(
-            "x-cloud-trace-context", ""
-        )
+# Simple exception handling middleware
+class SimpleLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         try:
             response = await call_next(request)
             return response
@@ -88,23 +46,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 status_code=500, content={"success": False, "message": str(ex)}
             )
 
-
-app = FastAPI()
-# Initialize Google Cloud Logging client
-client = google.cloud.logging.Client()
-handler = client.get_default_handler()
-
-# set the level to show above
-handler.setLevel(logging.DEBUG)
-
-# Add the custom filter to the handler
-handler.addFilter(GoogleCloudLogFilter(project=client.project))
-
-# Configure the logger to use the handler
-logging.getLogger().handlers = []
-logging.getLogger().addHandler(handler)
-logger.setLevel(logging.DEBUG)
-
+app.add_middleware(SimpleLoggingMiddleware)
 
 @app.get("/")
 async def read_root():
@@ -133,83 +75,86 @@ def get_oauth2_token():
     auth_req = google.auth.transport.requests.Request()
     creds.refresh(auth_req)
     return creds.token
-# Add a function to retrieve and store DICOM images
+
 async def retrieve_and_store_dicom(url, bucket_name, bucket_path):
-    """
-    Retrieves a DICOM image from the given URL and stores it in Google Cloud Storage.
+    """Retrieves and stores all DICOM instances from a DICOMweb study."""
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(bucket_name)
     
-    Args:
-        url (str): URL to retrieve the DICOM image from
-        bucket_name (str): GCS bucket name
-        bucket_path (str): Path within the bucket
-    
-    Returns:
-        bool: Success status
-    """
-    # Set up headers for DICOM request
     headers = CaseInsensitiveDict()
     headers['Accept'] = 'multipart/related; type="application/dicom"; transfer-syntax=*'
     headers["Authorization"] = f"Bearer {get_oauth2_token()}"
     
     try:
-        # Get the DICOM image
+        logger.info(f"Retrieving DICOM data from: {url}")
         response = requests.get(url, headers=headers)
         
-        # Check response status
         if response.status_code != 200:
-            logger.error(f"Failed to retrieve DICOM from {url}: Status {response.status_code}")
+            logger.error(f"Failed to retrieve DICOM: Status {response.status_code}")
             return False
             
-        # Get content type to determine how to handle the response
         content_type = response.headers.get('Content-Type', '')
+        if 'multipart/related' not in content_type:
+            logger.error(f"Unsupported content type: {content_type}")
+            return False
         
-        if 'application/json' in content_type:
-            # Handle JSON response (likely an error or metadata)
-            logger.warning(f"Received JSON response instead of DICOM: {response.json()}")
-            return False
+        # Parse the multipart response
+        decoder = MultipartDecoder(response.content, content_type)
+        
+        # Process each part (each part is a separate DICOM instance)
+        instance_count = 0
+        success_count = 0
+        
+        for part in decoder.parts:
+            part_content_type = part.headers.get(b'Content-Type', b'').decode('utf-8')
             
-        elif 'multipart/related' in content_type:
-            # Handle multipart DICOM response
-            decoder = MultipartDecoder(response.content, content_type)
+            if 'application/dicom' not in part_content_type:
+                logger.warning(f"Skipping non-DICOM part with content type: {part_content_type}")
+                continue
             
-            # Process each part of the multipart response
-            for part in decoder.parts:
-                content = part.content
-                byte_stream = io.BytesIO(content)
-                
-                try:
-                    # Read DICOM data
-                    dcm = dicom.dcmread(byte_stream, force=True)
+            # Process this DICOM instance
+            try:
+                # Read the DICOM data
+                with io.BytesIO(part.content) as dicom_data:
+                    dcm = dicom.dcmread(dicom_data, force=True)
                     
-                    # Get instance UID for filename
-                    instance_uid = str(dcm['SOPInstanceUID'].value)
+                    # Extract metadata for logging
+                    study_uid = str(dcm.get('StudyInstanceUID', 'unknown_study'))
+                    series_uid = str(dcm.get('SeriesInstanceUID', 'unknown_series'))
                     
-                    # Create path and upload to GCS
-                    file_path = f"{bucket_path}/image_instance/{instance_uid}.dcm"
+                    # Get instance UID
+                    if 'SOPInstanceUID' in dcm:
+                        instance_uid = str(dcm['SOPInstanceUID'].value)
+                    else:
+                        # Generate a fallback UID
+                        import hashlib
+                        instance_hash = hashlib.md5(part.content[:4096]).hexdigest()
+                        instance_uid = f"unknown_uid_{instance_hash}"
+                        logger.warning(f"No SOPInstanceUID found in DICOM, using generated ID: {instance_uid}")
                     
-                    # Upload to Google Cloud Storage
-                    storage_client = storage.Client()
-                    bucket = storage_client.bucket(bucket_name)
+                    # Create a hierarchical path for better organization
+                    file_path = f"{bucket_path}/{study_uid}/{series_uid}/{instance_uid}.dcm"
+                    
+                    # Upload to GCS
                     blob = bucket.blob(file_path)
-                    blob.upload_from_string(content)
+                    blob.upload_from_string(part.content, content_type='application/dicom')
                     
-                    logger.info(f"Successfully uploaded DICOM to {bucket_name}/{file_path}")
-                    return True
-                    
-                except Exception as e:
-                    logger.exception(f"Error processing DICOM part: {e}")
+                    success_count += 1
+                    logger.info(f"Uploaded DICOM instance {instance_uid} to {file_path}")
             
-            logger.warning(f"No valid DICOM parts found in response from {url}")
-            return False
+            except Exception as e:
+                logger.exception(f"Error processing DICOM instance: {e}")
             
-        else:
-            logger.error(f"Unexpected content type: {content_type} from {url}")
-            return False
-            
+            instance_count += 1
+        
+        logger.info(f"Processed {success_count}/{instance_count} DICOM instances from study URL: {url}")
+        return success_count > 0
+        
     except Exception as e:
-        logger.exception(f"Error retrieving DICOM from {url}: {e}")
+        logger.exception(f"Error retrieving or processing DICOM study: {e}")
         return False
-
+    
+    
 # Modify the Pub/Sub handler
 @app.post("/push_handlers/receive_messages")
 async def pubsub_push_handlers_receive(request: Request):
@@ -222,7 +167,7 @@ async def pubsub_push_handlers_receive(request: Request):
     try:
         token = bearer_token.split(" ")[1]
         claim = verify_jwt(token)
-        logger.info("JWT Claim:", extra={"claim": claim})
+        logger.info(f"Processing request with JWT claim ID: {claim.get('sub', 'unknown')}")
 
         envelope = await request.json()
         if (
@@ -253,9 +198,7 @@ async def pubsub_push_handlers_receive(request: Request):
                 logger.warning(f"Failed to process DICOM from {dicom_url}")
             
         else:
-            logger.warning(
-                "Invalid Pub/Sub message format", extra={"envelope": envelope}
-            )
+            logger.warning("Invalid Pub/Sub message format")
 
         # Return a 204 to indicate a success, even if processing failed
         # This is standard practice for Pub/Sub to prevent retries
@@ -270,10 +213,7 @@ async def pubsub_push_handlers_receive(request: Request):
         return JSONResponse(
             status_code=500, content={"message": "Error processing message"}
         )
-    
-    
 
-app.add_middleware(LoggingMiddleware)  # Register the middleware
 
 if __name__ == "__main__":
     import uvicorn

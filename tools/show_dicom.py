@@ -6,7 +6,7 @@ import os
 def display_dicom(dicom_file_path):
     try:
         # Load the DICOM file
-        ds = pydicom.dcmread(dicom_file_path)
+        ds = pydicom.dcmread(dicom_file_path, force=True)
         
         # Print all metadata
         print("DICOM Metadata:")
@@ -38,4 +38,4 @@ def display_dicom(dicom_file_path):
 
 if __name__ == "__main__":
     
-    display_dicom("F:/CODE/CADBUSI/CADBUSI-Anonymize/anonymized/image_02263078_68896714-2_bc5b0224c104c4a3fd7cd8868d37b9eb75b3cfe1d95fcc0c62b2c42555f69f45.dcm")
+    display_dicom("F:/CODE/CADBUSI/CADBUSI-Anonymize/dicoms/Downloads_image_instance_unknown_uid_0020164813dc5651f9b0644437ae0de8.dcm")

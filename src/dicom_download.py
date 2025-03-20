@@ -33,7 +33,35 @@ GCS_STAGE = f"gs://shared-aif-bucket-87d1/cloudbuild_stage"
 # The URL will be obtained after deployment
 CLOUD_RUN_URL = None
 
-
+def wake_up_service():
+    """Send a request to wake up the Cloud Run service before sending messages"""
+    import requests
+    
+    global CLOUD_RUN_URL
+    if not CLOUD_RUN_URL:
+        return False
+    
+    print(f"Warming up Cloud Run service at {CLOUD_RUN_URL}...")
+    try:
+        # Get a token for authentication
+        token_cmd = ["gcloud", "auth", "print-identity-token", 
+                     f"--audiences={CLOUD_RUN_URL}"]
+        token_result = subprocess.run(token_cmd, check=True, capture_output=True, text=True)
+        token = token_result.stdout.strip()
+        
+        # Send a GET request to wake up the service
+        headers = {"Authorization": f"Bearer {token}"}
+        response = requests.get(f"{CLOUD_RUN_URL}", headers=headers, timeout=30)
+        print(f"Warm-up request status: {response.status_code}")
+        
+        # Give the service time to fully initialize
+        print("Waiting 10 seconds for service to be fully ready...")
+        time.sleep(10)
+        return True
+    except Exception as e:
+        print(f"Warning: Failed to warm up service: {e}")
+        return False
+    
 def build_and_push_image():
     """Builds and pushes the Docker image using Cloud Build."""
     print("Building and pushing Docker image...")
@@ -120,7 +148,8 @@ def deploy_cloud_run():
         f"--vpc-connector={vpc_connector}",
         "--vpc-egress=all-traffic",
         "--timeout=3000",
-        "--memory=2048Mi",
+        "--memory=4096Mi",
+        "--min-instances=1",
     ]
     
     try:
@@ -377,16 +406,19 @@ def dicom_download_remote_start(csv_file = None, deploy = False, cleanup = False
         time.sleep(5)
         setup_pubsub()
     
-    # Test Message - IDK why but it only works with a pre init message
-    message = "deadlink"
-    future = publish_message(message)
-    print(f"Message ID: {future.result()}")
+    # Wake up the service before processing messages
+    if csv_file and os.path.exists(csv_file):
+        # Make sure service is warmed up before sending messages
+        wake_up_service()
+        
+        # Now process the CSV file
+        process_csv_file(csv_file)
+        
+        # Wait a bit to allow processing to complete
+        print("Waiting 20 seconds for message processing to complete...")
+        time.sleep(20)
+    elif csv_file:
+        print(f"Error: CSV file not found: {csv_file}")
+        return 1
     
-    if csv_file:
-        if os.path.exists(csv_file):
-            process_csv_file(csv_file)
-        else:
-            print(f"Error: CSV file not found: {csv_file}")
-            return 1
-            
     return 0
