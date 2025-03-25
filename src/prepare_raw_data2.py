@@ -2,7 +2,9 @@
 import os
 import pandas as pd
 import re
+# Get the current script directory and go back one directory
 env = os.path.dirname(os.path.abspath(__file__))
+env = os.path.dirname(env)  # Go back one directory
 
 def filter_data(input_file):
     df = pd.read_csv(input_file, low_memory=False)
@@ -138,7 +140,7 @@ def filter_data(input_file):
     
 
 # Execution 
-input_file = f'{env}/dicom_urls.csv'
+input_file = f'{env}/dicom_query.csv'
 output_file = f'{env}/output.csv'
 
 filtered_data = filter_data(input_file)

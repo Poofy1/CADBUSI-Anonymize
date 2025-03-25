@@ -109,14 +109,28 @@ def encrypt_ids(input_file=None, output_file=None, key_output=None):
         reader = csv.reader(infile)
         writer = csv.writer(outfile)
         
-        # Write header
+        # Read header
         header = next(reader)
-        writer.writerow(header)
+        
+        # Find the index of ENDPT_ADDRESS column if it exists
+        try:
+            endpt_address_index = header.index("ENDPT_ADDRESS")
+            # Create a new header without the ENDPT_ADDRESS column
+            new_header = [col for i, col in enumerate(header) if i != endpt_address_index]
+            writer.writerow(new_header)
+        except ValueError:
+            # If ENDPT_ADDRESS doesn't exist, keep the original header
+            writer.writerow(header)
+            endpt_address_index = -1
         
         for row in reader:
             encrypted_row = []
             
             for i, value in enumerate(row):
+                # Skip the ENDPT_ADDRESS column
+                if i == endpt_address_index:
+                    continue
+                    
                 if i <= 1:  # Process the first two columns
                     try:
                         encrypted_value = encrypt_single_id(key, value)

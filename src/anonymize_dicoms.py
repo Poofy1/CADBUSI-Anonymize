@@ -134,8 +134,6 @@ def create_dcm_filename(ds, key):
     # Encrypt identifiers using the new method
     anonymized_patient_id = encrypt_single_id(key, patient_id)
     anonymized_accession_number = encrypt_single_id(key, accession_number)
-
-    print(patient_id)
     
     # Check the media type
     media_type = ds.file_meta[0x00020002]

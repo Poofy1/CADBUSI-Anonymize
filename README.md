@@ -1,4 +1,4 @@
-# CASBUSI-Anonymize
+# CADBUSI-Anonymize
 
 This repository contains scripts for processing and anonymizing ultrasound image data from Mayo Clinic. The scripts are designed to handle and modify large sets of medical data while maintaining patient confidentiality. There are two primary Python scripts: `prepare_raw_data.py` and `anonymize_data.py`.
 
