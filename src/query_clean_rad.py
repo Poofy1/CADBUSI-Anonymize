@@ -161,9 +161,8 @@ def extract_rad_pathology_txt(text):
         return after_pathology
     
     
-def filter_data(radiology_csv, pathology_csv):
+def filter_data(radiology_csv):
     radiology_df = pd.read_csv(radiology_csv, low_memory=False)
-    pathology_df = pd.read_csv(pathology_csv, low_memory=False)
 
     rename_dict = {'PAT_PATIENT_CLINIC_NUMBER': 'Patient_ID',
         'IMGST_ACCESSION_IDENTIFIER_VALUE': 'Accession_Number',
@@ -188,10 +187,10 @@ def filter_data(radiology_csv, pathology_csv):
         
     pd.set_option('display.max_colwidth', None)
     # Columns to drop
-    columns_to_drop = ['RADIOLOGY_NARRATIVE', 'PROCEDURE_CODE_TEXT', 'RADIOLOGY_REPORT', 'RAD_SERVICE_RESULT_STATUS']
+    columns_to_drop = ['RADIOLOGY_NARRATIVE', 'PROCEDURE_CODE_TEXT', 'SERVICE_RESULT_STATUS', 'RADIOLOGY_REPORT', 'RAD_SERVICE_RESULT_STATUS']
     radiology_df = radiology_df.drop(columns=columns_to_drop, errors='ignore')
     
-    radiology_df.to_csv(f'{env}/output.csv', index=False)
+    radiology_df.to_csv(f'{env}/radio_output.csv', index=False)
     
     
     
@@ -199,6 +198,5 @@ def filter_data(radiology_csv, pathology_csv):
 
 # Execution 
 radiology_csv = f'{env}/radiology_data.csv'
-pathology_csv = f'{env}/pathology_data.csv'
 
-filter_data(radiology_csv, pathology_csv)
+filter_data(radiology_csv)
