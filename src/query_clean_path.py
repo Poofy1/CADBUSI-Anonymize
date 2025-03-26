@@ -71,15 +71,56 @@ def extract_modality(text):
    
    return None
 
+
+def categorize_pathology(text):
+    if pd.isna(text):
+        return "UNKNOWN"
+    
+    text = str(text).upper()
+    
+    # Malignant indicators
+    malignant_terms = [
+        "MALIGNANT", "CARCINOMA", "CANCER", "INVASIVE", "DCIS", "DUCTAL CARCINOMA", 
+        "LOBULAR CARCINOMA", "ADENOCARCINOMA", "METASTATIC", "METASTASIS",
+        "POSITIVE FOR MALIGNANCY", "HIGH GRADE DYSPLASIA"
+    ]
+    
+    # Benign indicators
+    benign_terms = [
+        "BENIGN", "FIBROCYSTIC", "FIBROADENOMA", "NEGATIVE FOR MALIGNANCY", 
+        "NORMAL BREAST TISSUE", "REACTIVE CHANGES", "FAT NECROSIS", 
+        "USUAL DUCTAL HYPERPLASIA", "UDH", "PSEUDOANGIOMATOUS STROMAL HYPERPLASIA", 
+        "PASH", "COLUMNAR CELL CHANGES", "NO EVIDENCE OF MALIGNANCY"
+    ]
+    
+    # Concerning/indeterminate findings
+    concerning_terms = [
+        "ATYPICAL", "ATYPIA", "SUSPICIOUS", "INDETERMINATE", "UNCERTAIN",
+        "CANNOT RULE OUT", "ADH", "ATYPICAL DUCTAL HYPERPLASIA", 
+        "ALH", "ATYPICAL LOBULAR HYPERPLASIA"
+    ]
+    
+    # Check for malignant indicators first
+    for term in malignant_terms:
+        if term in text:
+            return "MALIGNANT"
+    
+    # Check for concerning/indeterminate findings
+    for term in concerning_terms:
+        if term in text:
+            return "INDETERMINATE"
+    
+    # Check for benign indicators
+    for term in benign_terms:
+        if term in text:
+            return "BENIGN"
+    
+    # If no clear indicators found
+    return "UNKNOWN"
+
+
 def filter_path_data(pathology_df):
     print("Parsing Pathology Data")
-    
-    # Rename columns
-    rename_dict = {
-        'PATIENT_ID': 'Patient_ID',
-        'ENCOUNTER_ID': 'Accession_Number'
-    }
-    pathology_df = pathology_df.rename(columns=rename_dict)
     
     # Extract laterality from PART_DESCRIPTION
     pathology_df['Pathology_Laterality'] = pathology_df['PART_DESCRIPTION'].apply(check_text_for_laterality)
@@ -87,17 +128,20 @@ def filter_path_data(pathology_df):
     # Extract final diagnosis from SPECIMEN_NOTE
     pathology_df['final_diag'] = pathology_df['SPECIMEN_NOTE'].apply(extract_final_diagnosis)
     
+    # simple diagnosis classification
+    pathology_df['simple_diagnosis'] = pathology_df['final_diag'].apply(categorize_pathology)
     
     # Extract Modality from SPECIMEN_NOTE
     pathology_df['Modality'] = pathology_df['SPECIMEN_COMMENT'].apply(extract_modality)
     
     # Select columns for output
     columns_to_keep = [
-        'Patient_ID', 
-        'Accession_Number', 
+        'PATIENT_ID', 
+        'ENCOUNTER_ID', 
         'SPECIMEN_ACCESSION_NUMBER',
         'Pathology_Laterality',
         'final_diag',
+        'simple_diagnosis',
         'Modality',
         'DIAGNOSIS_NAME', 
         'SPECIMEN_COMMENT',
@@ -108,6 +152,14 @@ def filter_path_data(pathology_df):
     
     # Create output dataframe with selected columns
     output_df = pathology_df[columns_to_keep].copy()
+    
+    # Remove duplicate rows
+    rows_before = len(output_df)
+    output_df = output_df.drop_duplicates(keep='first')
+    rows_after = len(output_df)
+    duplicates_removed = rows_before - rows_after
+    
+    print(f"Removed {duplicates_removed} exact duplicate rows.")
     
     # Save to CSV
     output_df.to_csv(f'{env}/raw_data/parsed_pathology.csv', index=False)

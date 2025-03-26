@@ -159,12 +159,29 @@ def extract_rad_pathology_txt(text):
     else:
         # If no next section header is found, return all text after "PATHOLOGY:"
         return after_pathology
+
+def check_for_biopsy(description):
+    """
+    Check if 'BIOPSY' appears in the description (case insensitive)
     
+    Args:
+        description: The text to check
+        
+    Returns:
+        'T' if biopsy is found, 'F' if not
+    """
+    if pd.isna(description):
+        return 'F'
+        
+    if 'BIOPSY' in description.upper():
+        return 'T'
+    else:
+        return 'F'
     
 def filter_rad_data(radiology_df):
     print("Parsing Radiology Data")
 
-    rename_dict = {'PAT_PATIENT_CLINIC_NUMBER': 'Patient_ID',
+    rename_dict = {'PAT_PATIENT_CLINIC_NUMBER': 'PATIENT_ID',
         'IMGST_ACCESSION_IDENTIFIER_VALUE': 'Accession_Number',
         'IMGST_DESCRIPTION': 'Biopsy_Desc',}
     
@@ -184,6 +201,9 @@ def filter_rad_data(radiology_df):
     
     # Extract pathology text
     radiology_df['rad_pathology_txt'] = radiology_df['RADIOLOGY_REPORT'].apply(extract_rad_pathology_txt)
+    
+    # Check for biopsy in DESCRIPTION column
+    radiology_df['is_biopsy'] = radiology_df['DESCRIPTION'].apply(check_for_biopsy)
         
     pd.set_option('display.max_colwidth', None)
     # Columns to drop
