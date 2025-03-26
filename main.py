@@ -2,6 +2,8 @@ from src.dicom_download import *
 from src.query import *
 from src.anonymize_dicoms import *
 from src.encrypt_keys import *
+from src.query_clean_path import filter_path_data
+from src.query_clean_rad import filter_path_rad
 import argparse
 import os
 import time
@@ -48,13 +50,11 @@ def main():
                 sys.exit(1)
         
         # Run the query with the specified limit
-        df = run_breast_imaging_query(limit=limit)
-        
-        # Save results to CSV
-        print(f"\nSaving results to {dicom_query_file}...")
-        df.to_csv(dicom_query_file, index=False)
+        rad_df, path_df = run_breast_imaging_query(limit=limit)
 
-        # Next process / simplify that data (wip)
+        # Parse that data
+        filter_path_rad(rad_df)
+        filter_path_data(path_df)
     
     elif args.deploy or args.cleanup or args.rerun:
         dicom_download_remote_start(dicom_query_file, args.deploy, args.cleanup)

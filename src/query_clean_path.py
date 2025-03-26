@@ -89,9 +89,8 @@ def extract_modality(text):
    
    return None
 
-def process_pathology_data(pathology_csv):
-    # Read the pathology CSV file
-    pathology_df = pd.read_csv(pathology_csv, low_memory=False)
+def filter_path_data(pathology_df):
+    print("Parsing Pathology Data")
     
     # Rename columns
     rename_dict = {
@@ -132,10 +131,6 @@ def process_pathology_data(pathology_csv):
     output_df = pathology_df[columns_to_keep].copy()
     
     # Save to CSV
-    output_df.to_csv(f'{env}/pathology_output.csv', index=False)
+    output_df.to_csv(f'{env}/raw_data/pathology_output.csv', index=False)
     
     return output_df
-
-# Execution
-pathology_csv = f'{env}/pathology_data.csv'
-process_pathology_data(pathology_csv)

@@ -1,60 +1,35 @@
 from google.cloud import bigquery
 import time
+import os
+# Get the current script directory and go back one directory
+env = os.path.dirname(os.path.abspath(__file__))
+env = os.path.dirname(env)  # Go back one directory
 
-def get_patient_and_accession_ids(limit=None):
+
+BREAST_FILTER = """'IMG3425','IMG3426','IMG10897','IMG3571','IMG3557','IMG3558','IMG4636','IMG4637','IMG1100','IMG3506','IMG3545',
+                  'IMG3508','IMG616','IMG3566','IMG1974','IMG3543','IMG3245','IMG3507','IMG3546','IMG3509','IMG1950','IMG3567',
+                  'IMG1975','IMG3544','IMG3246','IMG10829','IMG10900','IMG3333','IMG3373','IMG3376','IMG3374','IMG3375','IMG3518',
+                  'IMG3519','IMG3504','IMG3505','IMG3371','IMG3251','IMG3252','IMG10738','IMG600','IMG610','IMG3287','IMG3288',
+                  'IMG588','IMG612','IMG3283','IMG3285','IMG589','IMG611','IMG3284','IMG3286','IMG1983','IMG579','IMG1982',
+                  'IMG3524','IMG3523','IMG617','IMG1952','IMG3551','IMG3512','IMG3520','IMG3513','IMG3517','IMG3521','IMG10826',
+                  'IMG3428','IMG3430','IMG3432','IMG3429','IMG3431','IMG3433','IMG3540','IMG3539','IMG3538','IMG3584','IMG3572',
+                  'IMG3574','IMG3576','IMG3573','IMG3575','IMG3577','IMG3552','IMG3302','IMG3215','IMG605','IMG3221','IMG3570',
+                  'IMG608','IMG3427','IMG3569','IMG609','IMG3222','IMG3568','IMG10828','IMG10902','IMG10808','IMG3382','IMG621',
+                  'IMG3388','IMG3381','IMG3387','IMG10832','IMG1972','IMG1976','IMG3255','IMG1973','IMG1977','IMG3256','IMG10833',
+                  'IMG3207','IMG2360','IMG3322','IMG3240','IMG3265','IMG3315','IMG3233','IMG3341','IMG3342','IMG3326','IMG3329',
+                  'IMG3330','IMG3241','IMG3248','IMG3249','IMG3308','IMG3211','IMG4225','IMG1073','IMG4009','IMG4115','IMG4159',
+                  'IMG3503','IMG3502','IMG4503','IMG3247','IMG4585','IMG5967','IMG10000','IMG3788','IMG1045','IMG1143','IMG1144',
+                  'IMG10769','IMG1069','IMG3510','IMG1971','IMG3511','IMG1970','IMG4852','IMG1044','IMG1142','IMG1639','IMG3979',
+                  'IMG4957','IMG4959','IMG1043','IMG1141','IMG1638','IMG3607','IMG2442','IMG13019','IMG13020','CMP021','CMP026',
+                  'IMG10823','IMG4307','IMG4838','IMG4839','IMG4765','IMG4897','IMG4898','IMG4899'"""
+
+def get_radiology_data(limit=None):
     """
-    Get all relevant patient IDs and accession numbers for breast imaging studies
+    Get radiology data for breast imaging studies, ensuring all relevant accessions
+    for each patient are included, but still filtering for breast imaging only
     
     Args:
-        limit (int, optional): Number of results to limit the query to.
-    
-    Returns:
-        pandas.DataFrame: Query results as a dataframe
-    """
-    start_time = time.time()
-    print("Initializing BigQuery client...")
-    client = bigquery.Client()
-    
-    query = """
-    WITH filtered_imaging_studies AS (
-      SELECT *
-      FROM `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.ImagingStudy`
-      WHERE procedure_code_coding_code IN ('IMG3247','IMG4159','IMG4009','IMG1073','IMG4225','IMG3211',
-                                           'IMG3249','IMG3248','IMG3241','IMG3330','IMG3329','IMG1100',
-                                           'IMG3265','IMG3240','IMG3246','IMG3509','IMG3245','IMG3508',
-                                           'IMG3326')
-    )
-    SELECT DISTINCT 
-      PAT_PATIENT.CLINIC_NUMBER AS PATIENT_ID,
-      filtered_imaging_studies.ACCESSION_IDENTIFIER_VALUE AS ACCESSION_NUMBER
-    FROM filtered_imaging_studies
-    INNER JOIN 
-      `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.Patient` PAT_PATIENT 
-      ON (filtered_imaging_studies.clinic_number = PAT_PATIENT.clinic_number)
-    """
-    
-    if limit is not None:
-        query += f"\nLIMIT {limit}"
-        print(f"Running patient and accession ID query with limit of {limit} rows...")
-    else:
-        print("Running patient and accession ID query without row limit...")
-    
-    query_start_time = time.time()
-    print("Executing query...")
-    df = client.query(query).to_dataframe()
-    query_end_time = time.time()
-    query_duration = query_end_time - query_start_time
-    
-    print(f"Patient and accession ID query complete. Retrieved {len(df)} rows in {query_duration:.2f} seconds.")
-    
-    return df
-
-def get_radiology_data(accession_numbers):
-    """
-    Get radiology data for specific accession numbers
-    
-    Args:
-        accession_numbers (list): List of accession numbers to query
+        limit (int, optional): Limit the number of patients returned
     
     Returns:
         pandas.DataFrame: Query results as a dataframe
@@ -63,15 +38,27 @@ def get_radiology_data(accession_numbers):
     print("Initializing BigQuery client for radiology data...")
     client = bigquery.Client()
     
-    # Format accession numbers (these are typically strings)
-    accession_str = ', '.join([f"'{acc}'" for acc in accession_numbers])
-    
     query = f"""
+    -- First identify patients with breast imaging studies
+    WITH breast_imaging_patients AS (
+      SELECT DISTINCT PAT_PATIENT.CLINIC_NUMBER AS PATIENT_ID
+      FROM `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.ImagingStudy` imaging
+      INNER JOIN `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.Patient` PAT_PATIENT 
+      ON (imaging.clinic_number = PAT_PATIENT.clinic_number)
+      WHERE procedure_code_coding_code IN ({BREAST_FILTER})
+    """
+    
+    if limit is not None:
+        query += f"\nLIMIT {limit}"
+        
+    query += f"""
+    )
+    -- Then get all BREAST radiology data for these patients
     SELECT DISTINCT 
       PAT_PATIENT.CLINIC_NUMBER AS PATIENT_ID,
-      filtered_imaging_studies.ACCESSION_IDENTIFIER_VALUE AS ACCESSION_NUMBER,
-      filtered_imaging_studies.DESCRIPTION,
-      filtered_imaging_studies.PROCEDURE_CODE_TEXT,
+      imaging_studies.ACCESSION_IDENTIFIER_VALUE AS ACCESSION_NUMBER,
+      imaging_studies.DESCRIPTION,
+      imaging_studies.PROCEDURE_CODE_TEXT,
       ENDPOINT.ADDRESS AS ENDPOINT_ADDRESS,
       PAT_PATIENT.US_CORE_BIRTHSEX,
       RAD_FACT_RADIOLOGY.RADIOLOGY_NARRATIVE,
@@ -79,17 +66,18 @@ def get_radiology_data(accession_numbers):
       RAD_FACT_RADIOLOGY.SERVICE_RESULT_STATUS,
       RAD_FACT_RADIOLOGY.RADIOLOGY_DTM,
       RAD_FACT_RADIOLOGY.RADIOLOGY_REVIEW_DTM
-    FROM `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.ImagingStudy` filtered_imaging_studies
+    FROM `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.ImagingStudy` imaging_studies
+    INNER JOIN breast_imaging_patients ON imaging_studies.clinic_number = breast_imaging_patients.PATIENT_ID
     INNER JOIN 
       `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.Patient` PAT_PATIENT 
-      ON (filtered_imaging_studies.clinic_number = PAT_PATIENT.clinic_number)
+      ON (imaging_studies.clinic_number = PAT_PATIENT.clinic_number)
     INNER JOIN 
       `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.Endpoint` ENDPOINT 
-      ON (filtered_imaging_studies.gcp_endpoint_id = ENDPOINT.id)
+      ON (imaging_studies.gcp_endpoint_id = ENDPOINT.id)
     LEFT JOIN 
       `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.FACT_RADIOLOGY` RAD_FACT_RADIOLOGY 
-      ON (filtered_imaging_studies.ACCESSION_IDENTIFIER_VALUE = RAD_FACT_RADIOLOGY.ACCESSION_NBR)
-    WHERE filtered_imaging_studies.ACCESSION_IDENTIFIER_VALUE IN ({accession_str})
+      ON (imaging_studies.ACCESSION_IDENTIFIER_VALUE = RAD_FACT_RADIOLOGY.ACCESSION_NBR)
+    WHERE imaging_studies.procedure_code_coding_code IN ({BREAST_FILTER})
     """
 
     query_start_time = time.time()
@@ -97,9 +85,9 @@ def get_radiology_data(accession_numbers):
     df = client.query(query).to_dataframe()
     query_end_time = time.time()
     query_duration = query_end_time - query_start_time
-    
-    print(f"Radiology query complete. Retrieved {len(df)} rows in {query_duration:.2f} seconds.")
-    
+
+    print(f"Radiology query complete. Retrieved {len(df)} rows for {len(df['PATIENT_ID'].unique())} patients in {query_duration:.2f} seconds.")
+
     return df
 
 def get_pathology_data(patient_ids):
@@ -173,38 +161,44 @@ def get_pathology_data(patient_ids):
     
     return df
 
+
 def run_breast_imaging_query(limit=None):
     """
-    Run all queries and save results to CSV files
+    Run queries with complete radiology and pathology data per patient
     
     Args:
-        patient_limit (int, optional): Limit for patient ID query
-        radiology_limit (int, optional): Limit for radiology data query
-        pathology_limit (int, optional): Limit for pathology data query
+        limit (int, optional): Limit the number of patients to process
     """
+    # Create data directory if it doesn't exist
+    data_dir = os.path.join(env, "raw_data")
+    if not os.path.exists(data_dir):
+        os.makedirs(data_dir)
+        print(f"Created directory: {data_dir}")
+    
+    
     total_start_time = time.time()
     print("Starting breast imaging query process...")
     
-    # Step 1: Get patient IDs and accession numbers
-    print("\n=== PATIENT AND ACCESSION ID QUERY ===")
-    data_df = get_patient_and_accession_ids(limit=limit)
-    patient_ids = data_df['PATIENT_ID'].unique().tolist()
-    accession_numbers = data_df['ACCESSION_NUMBER'].tolist()
-    data_df.to_csv('patient_accession_ids.csv', index=False)
-    print(f"Patient and accession IDs saved to patient_accession_ids.csv")
-    
-    # Step 2: Get radiology data using accession numbers
+    # Step 1: Get all radiology data for breast imaging
     print("\n=== RADIOLOGY DATA QUERY ===")
-    rad_df = get_radiology_data(accession_numbers)
-    rad_df.to_csv('radiology_data.csv', index=False)
-    print(f"Radiology data saved to radiology_data.csv")
+    rad_df = get_radiology_data(limit=limit)
+    rad_path = os.path.join(env, "raw_data", "radiology_data.csv")
+    rad_df.to_csv(rad_path, index=False)
+    print(f"Radiology data saved")
     
-    # Step 3: Get pathology data
+    # Extract unique patient IDs from the radiology data
+    patient_ids = rad_df['PATIENT_ID'].unique().tolist()
+    print(f"Extracted {len(patient_ids)} unique patient IDs for pathology query")
+    
+    # Step 2: Get pathology data for these patients
     print("\n=== PATHOLOGY DATA QUERY ===")
     path_df = get_pathology_data(patient_ids)
-    path_df.to_csv('pathology_data.csv', index=False)
-    print(f"Pathology data saved to pathology_data.csv")
+    path_path = os.path.join(env, "raw_data", "pathology_data.csv")
+    path_df.to_csv(path_path, index=False)
+    print(f"Pathology data saved")
     
     total_end_time = time.time()
     total_duration = total_end_time - total_start_time
     print(f"\nAll queries complete! Total execution time: {total_duration:.2f} seconds")
+    
+    return rad_df, path_df
