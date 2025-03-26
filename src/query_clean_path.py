@@ -55,24 +55,6 @@ def extract_final_diagnosis(text):
     else:
         # If no next section header is found, return all text after "FINAL DIAGNOSIS:"
         return after_diagnosis
-    
-def extract_birads(text):
-    if pd.isna(text):
-        return None
-    
-    text = str(text).upper()
-    
-    # Pattern to match different BI-RADS formats
-    # Looks for BI-RADS, BIRADS, BI RADS with optional hyphen/space
-    # followed by optional colon and then a value (possibly with a letter)
-    birads_pattern = r'BI[-\s]?RADS:?\s*(\d[A-Za-z]?)'
-    
-    match = re.search(birads_pattern, text, re.IGNORECASE)
-    if match:
-        return match.group(1)  # Return the captured BI-RADS value
-    
-    return None
-
 
 def extract_modality(text):
    if pd.isna(text):
@@ -105,8 +87,6 @@ def filter_path_data(pathology_df):
     # Extract final diagnosis from SPECIMEN_NOTE
     pathology_df['final_diag'] = pathology_df['SPECIMEN_NOTE'].apply(extract_final_diagnosis)
     
-    # Extract BI-RADS value from SPECIMEN_COMMENT
-    pathology_df['BI_RADS'] = pathology_df['SPECIMEN_COMMENT'].apply(extract_birads)
     
     # Extract Modality from SPECIMEN_NOTE
     pathology_df['Modality'] = pathology_df['SPECIMEN_COMMENT'].apply(extract_modality)
@@ -118,7 +98,6 @@ def filter_path_data(pathology_df):
         'SPECIMEN_ACCESSION_NUMBER',
         'Pathology_Laterality',
         'final_diag',
-        'BI_RADS', 
         'Modality',
         'DIAGNOSIS_NAME', 
         'SPECIMEN_COMMENT',
