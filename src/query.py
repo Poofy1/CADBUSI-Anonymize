@@ -182,7 +182,7 @@ def run_breast_imaging_query(limit=None):
     # Step 1: Get all radiology data for breast imaging
     print("\n=== RADIOLOGY DATA QUERY ===")
     rad_df = get_radiology_data(limit=limit)
-    rad_path = os.path.join(env, "raw_data", "radiology_data.csv")
+    rad_path = os.path.join(env, "raw_data", "raw_radiology.csv")
     rad_df.to_csv(rad_path, index=False)
     print(f"Radiology data saved")
     
@@ -193,7 +193,7 @@ def run_breast_imaging_query(limit=None):
     # Step 2: Get pathology data for these patients
     print("\n=== PATHOLOGY DATA QUERY ===")
     path_df = get_pathology_data(patient_ids)
-    path_path = os.path.join(env, "raw_data", "pathology_data.csv")
+    path_path = os.path.join(env, "raw_data", "raw_pathology.csv")
     path_df.to_csv(path_path, index=False)
     print(f"Pathology data saved")
     

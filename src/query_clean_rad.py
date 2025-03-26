@@ -190,4 +190,4 @@ def filter_rad_data(radiology_df):
     columns_to_drop = ['RADIOLOGY_NARRATIVE', 'PROCEDURE_CODE_TEXT', 'SERVICE_RESULT_STATUS', 'RADIOLOGY_REPORT', 'RAD_SERVICE_RESULT_STATUS']
     radiology_df = radiology_df.drop(columns=columns_to_drop, errors='ignore')
     
-    radiology_df.to_csv(f'{env}/raw_data/radio_output.csv', index=False)
+    radiology_df.to_csv(f'{env}/raw_data/parsed_radiology.csv', index=False)

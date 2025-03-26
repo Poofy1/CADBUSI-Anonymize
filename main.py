@@ -3,7 +3,7 @@ from src.query import *
 from src.anonymize_dicoms import *
 from src.encrypt_keys import *
 from src.query_clean_path import filter_path_data
-from src.query_clean_rad import filter_path_rad
+from src.query_clean_rad import filter_rad_data
 import argparse
 import os
 import time
@@ -53,7 +53,7 @@ def main():
         rad_df, path_df = run_breast_imaging_query(limit=limit)
 
         # Parse that data
-        filter_path_rad(rad_df)
+        filter_rad_data(rad_df)
         filter_path_data(path_df)
     
     elif args.deploy or args.cleanup or args.rerun:

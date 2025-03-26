@@ -131,6 +131,6 @@ def filter_path_data(pathology_df):
     output_df = pathology_df[columns_to_keep].copy()
     
     # Save to CSV
-    output_df.to_csv(f'{env}/raw_data/pathology_output.csv', index=False)
+    output_df.to_csv(f'{env}/raw_data/parsed_pathology.csv', index=False)
     
     return output_df
