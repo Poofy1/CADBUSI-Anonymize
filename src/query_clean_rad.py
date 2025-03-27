@@ -17,11 +17,11 @@ def determine_laterality(row):
         text = text.upper()
         
         # Check for clear RIGHT indicators
-        if any(x in text for x in ["RIGHT", "R BI"]) and "BILATERAL" not in text:
+        if any(x in text for x in ["RIGHT", "R BI", " RT", "RT "]) and "BILATERAL" not in text:
             return "RIGHT"
         
         # Check for clear LEFT indicators
-        elif any(x in text for x in ["LEFT", "L BI"]) and "BILATERAL" not in text:
+        elif any(x in text for x in ["LEFT", "L BI", " LT", "LT "]) and "BILATERAL" not in text:
             return "LEFT"
         
         # Check for BILATERAL indicators
