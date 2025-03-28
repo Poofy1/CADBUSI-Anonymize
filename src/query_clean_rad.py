@@ -10,18 +10,18 @@ env = os.path.dirname(env)  # Go back one directory
 
 def determine_laterality(row):
     # Function to check a single text field
-    def check_text_for_laterality(text):
+    def check_text_for_laterality(text, right_text, left_text):
         if pd.isna(text):
             return None
         
         text = text.upper()
         
         # Check for clear RIGHT indicators
-        if any(x in text for x in ["RIGHT", "R BI", " RT", "RT "]) and "BILATERAL" not in text:
+        if any(x in text for x in right_text) and "BILATERAL" not in text:
             return "RIGHT"
         
         # Check for clear LEFT indicators
-        elif any(x in text for x in ["LEFT", "L BI", " LT", "LT "]) and "BILATERAL" not in text:
+        elif any(x in text for x in left_text) and "BILATERAL" not in text:
             return "LEFT"
         
         # Check for BILATERAL indicators
@@ -34,13 +34,13 @@ def determine_laterality(row):
     
     # First try DESCRIPTION column
     if 'DESCRIPTION' in row and not pd.isna(row['DESCRIPTION']):
-        laterality = check_text_for_laterality(row['DESCRIPTION'])
+        laterality = check_text_for_laterality(row['DESCRIPTION'], ["RIGHT", "R BI", " RT", "RT "], ["LEFT", "L BI", " LT", "LT "])
         if laterality is not None:
             return laterality
     
     # If not found or DESCRIPTION is empty, try RADIOLOGY_REPORT
     if 'RADIOLOGY_REPORT' in row and not pd.isna(row['RADIOLOGY_REPORT']):
-        laterality = check_text_for_laterality(row['RADIOLOGY_REPORT'])
+        laterality = check_text_for_laterality(row['RADIOLOGY_REPORT'], ["RIGHT", "R BI"], ["LEFT", "L BI"])
         if laterality is not None:
             return laterality
     

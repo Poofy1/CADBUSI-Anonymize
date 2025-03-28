@@ -148,6 +148,7 @@ def filter_path_data(pathology_df):
         'SPECIMEN_PART_TYPE_NAME',
         'SPECIMEN_ACCESSION_DTM',
         'SPECIMEN_RESULT_DTM',
+        'SPECIMEN_RECEIVED_DTM',
     ]
     
     # Create output dataframe with selected columns
