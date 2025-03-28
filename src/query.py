@@ -69,7 +69,8 @@ def get_radiology_data(limit=None):
       RAD_FACT_RADIOLOGY.RADIOLOGY_REPORT,
       RAD_FACT_RADIOLOGY.SERVICE_RESULT_STATUS,
       RAD_FACT_RADIOLOGY.RADIOLOGY_DTM,
-      RAD_FACT_RADIOLOGY.RADIOLOGY_REVIEW_DTM
+      RAD_FACT_RADIOLOGY.RADIOLOGY_REVIEW_DTM,
+      RADTEST_DIM_RADIOLOGY_TEST_NAME.RADIOLOGY_TEST_DESCRIPTION AS TEST_DESCRIPTION
     FROM `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.ImagingStudy` imaging_studies
     INNER JOIN breast_imaging_patients ON imaging_studies.clinic_number = breast_imaging_patients.PATIENT_ID
     INNER JOIN 
@@ -81,7 +82,10 @@ def get_radiology_data(limit=None):
     LEFT JOIN 
       `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.FACT_RADIOLOGY` RAD_FACT_RADIOLOGY 
       ON (imaging_studies.ACCESSION_IDENTIFIER_VALUE = RAD_FACT_RADIOLOGY.ACCESSION_NBR)
-    WHERE imaging_studies.procedure_code_coding_code IN ({BREAST_FILTER})
+    INNER JOIN 
+      `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.DIM_RADIOLOGY_TEST_NAME` RADTEST_DIM_RADIOLOGY_TEST_NAME 
+      ON (RAD_FACT_RADIOLOGY.RADIOLOGY_TEST_NAME_DK = RADTEST_DIM_RADIOLOGY_TEST_NAME.RADIOLOGY_TEST_NAME_DK)
+    WHERE RADTEST_DIM_RADIOLOGY_TEST_NAME.RADIOLOGY_TEST_DESCRIPTION LIKE '%BREAST%'
     """
 
     query_start_time = time.time()
