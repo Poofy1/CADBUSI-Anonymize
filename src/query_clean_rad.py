@@ -265,7 +265,7 @@ def filter_rad_data(radiology_df):
         
     pd.set_option('display.max_colwidth', None)
     # Columns to drop
-    columns_to_drop = ['RADIOLOGY_NARRATIVE', 'PROCEDURE_CODE_TEXT', 'SERVICE_RESULT_STATUS', 'RADIOLOGY_REPORT', 'RAD_SERVICE_RESULT_STATUS']
+    columns_to_drop = ['RADIOLOGY_NARRATIVE', 'PROCEDURE_CODE_TEXT', 'SERVICE_RESULT_STATUS', 'RADIOLOGY_REPORT', 'RAD_SERVICE_RESULT_STATUS', 'RADIOLOGY_REVIEW_DTM']
     radiology_df = radiology_df.drop(columns=columns_to_drop, errors='ignore')
     
     radiology_df.to_csv(f'{env}/raw_data/parsed_radiology.csv', index=False)
