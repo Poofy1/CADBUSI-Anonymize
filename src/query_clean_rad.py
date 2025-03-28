@@ -25,7 +25,7 @@ def determine_laterality(row):
             return "LEFT"
         
         # Check for BILATERAL indicators
-        elif "BILATERAL" in text:
+        elif "BILATERAL" in text or "BOTH" in text:
             return "BILATERAL"
         
         # If no laterality is found, return None
@@ -35,6 +35,12 @@ def determine_laterality(row):
     # First try DESCRIPTION column
     if 'DESCRIPTION' in row and not pd.isna(row['DESCRIPTION']):
         laterality = check_text_for_laterality(row['DESCRIPTION'], ["RIGHT", "R BI", " RT", "RT "], ["LEFT", "L BI", " LT", "LT "])
+        if laterality is not None:
+            return laterality
+        
+    # Then try DESCRIPTION column
+    if 'TEST_DESCRIPTION' in row and not pd.isna(row['TEST_DESCRIPTION']):
+        laterality = check_text_for_laterality(row['TEST_DESCRIPTION'], ["RIGHT", "R BI",], ["LEFT", "L BI",])
         if laterality is not None:
             return laterality
     
@@ -72,12 +78,17 @@ def extract_birads_and_description(text):
         r'BI-RADS\s*(\d+[a-z]?),\s*([^,\.]+)',
         r'IMPRESSION:\s*BI-RADS\s*(\d+[a-z]?),\s*([^,\.]+)',
         r'(?:IMPRESSION:|ASSESSMENT:)?\s*(?:BI-?RADS)\s*(\d+[a-z]?)\s*-\s*([^\.]+)',
+        r'BI-RADS\s*Category\s*(\d+[A-Za-z]?):\s*([^\.]+)',
     ]
     
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match and len(match.groups()) >= 2:
             birads_category = match.group(1)
+            # Convert any letters in the BI-RADS category to uppercase
+            if birads_category:
+                birads_category = ''.join([c.upper() if c.isalpha() else c for c in birads_category])
+            
             full_description = match.group(2).strip()
             
             # Truncate description at any of the specified keywords
@@ -93,14 +104,18 @@ def extract_birads_and_description(text):
     
     # Rest of the function remains the same
     for pattern in [
-        r'BI-RADS\s*(\d+[a-z]?)', 
-        r'BIRADS\s*(\d+[a-z]?)',
-        r'BI-RADS\s*Category\s*(\d+[a-z]?)',
-        r'OVERALL\s*STUDY\s*BIRADS:\s*(\d+[a-z]?)'
+        r'BI-RADS\s*(\d+[A-Za-z]?)', 
+        r'BIRADS\s*(\d+[A-Za-z]?)',
+        r'BI-RADS\s*Category\s*(\d+[A-Za-z]?)',
+        r'OVERALL\s*STUDY\s*BIRADS:\s*(\d+[A-Za-z]?)'
     ]: 
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
-            return match.group(1), None
+            birads_category = match.group(1)
+            # Convert any letters in the BI-RADS category to uppercase
+            if birads_category:
+                birads_category = ''.join([c.upper() if c.isalpha() else c for c in birads_category])
+            return birads_category, None
     
     # Special case for assessment with pathology but no explicit BI-RADS
     pathology_match = re.search(r'ASSESSMENT:\s*\d+:\s*(Pathology\s+\w+)', text, re.IGNORECASE)
@@ -160,23 +175,63 @@ def extract_rad_pathology_txt(text):
         # If no next section header is found, return all text after "PATHOLOGY:"
         return after_pathology
 
-def check_for_biopsy(description):
+def check_for_biopsy(row):
     """
-    Check if 'BIOPSY' appears in the description (case insensitive)
+    Check if 'BIOPSY' appears in either DESCRIPTION or TEST_DESCRIPTION (case insensitive)
     
     Args:
-        description: The text to check
+        row: The dataframe row with columns to check
         
     Returns:
-        'T' if biopsy is found, 'F' if not
+        'T' if biopsy is found in either column, 'F' if not
     """
-    if pd.isna(description):
-        return 'F'
-        
-    if 'BIOPSY' in description.upper():
-        return 'T'
+    # Check DESCRIPTION column
+    if 'DESCRIPTION' in row and not pd.isna(row['DESCRIPTION']):
+        if 'BIOPSY' in row['DESCRIPTION'].upper():
+            return 'T'
+    
+    # Check TEST_DESCRIPTION column
+    if 'TEST_DESCRIPTION' in row and not pd.isna(row['TEST_DESCRIPTION']):
+        if 'BIOPSY' in row['TEST_DESCRIPTION'].upper():
+            return 'T'
+    
+    # If not found in either column, return 'F'
+    return 'F'
+
+def extract_rad_impression(text):
+    if pd.isna(text):
+        return None
+    
+    # Check if "IMPRESSION:" exists in the text
+    if "IMPRESSION:" not in text:
+        return None
+    
+    # Check if "IMPRESSION:" or "IMPRESSION" exists in the text
+    if "IMPRESSION:" in text:
+        # Split by "IMPRESSION:" and get the content after it
+        after_impression = text.split("IMPRESSION:", 1)[1].strip()
+    elif "IMPRESSION" in text:
+        # Split by "IMPRESSION" and get the content after it
+        after_impression = text.split("IMPRESSION", 1)[1].strip()
+        # Remove leading colon if it exists
+        if after_impression.startswith(":"):
+            after_impression = after_impression[1:].strip()
     else:
-        return 'F'
+        return None
+    
+    # Use regex to find the next uppercase word followed by a colon
+    match = re.search(r'([A-Z]{2,}:)', after_impression)
+    
+    if match:
+        # Get position of the next section header
+        end_pos = match.start()
+        # Extract text from after "IMPRESSION:" until the next section header
+        impression_text = after_impression[:end_pos].strip()
+        return impression_text
+    else:
+        # If no next section header is found, return all text after "IMPRESSION:"
+        return after_impression
+    
     
 def filter_rad_data(radiology_df):
     print("Parsing Radiology Data")
@@ -202,8 +257,11 @@ def filter_rad_data(radiology_df):
     # Extract pathology text
     radiology_df['rad_pathology_txt'] = radiology_df['RADIOLOGY_REPORT'].apply(extract_rad_pathology_txt)
     
+    # Extract impression text
+    radiology_df['rad_impression'] = radiology_df['RADIOLOGY_REPORT'].apply(extract_rad_impression)
+    
     # Check for biopsy in DESCRIPTION column
-    radiology_df['is_biopsy'] = radiology_df['DESCRIPTION'].apply(check_for_biopsy)
+    radiology_df['is_biopsy'] = radiology_df.apply(check_for_biopsy, axis=1)
         
     pd.set_option('display.max_colwidth', None)
     # Columns to drop
@@ -211,3 +269,8 @@ def filter_rad_data(radiology_df):
     radiology_df = radiology_df.drop(columns=columns_to_drop, errors='ignore')
     
     radiology_df.to_csv(f'{env}/raw_data/parsed_radiology.csv', index=False)
+    
+    
+if __name__ == "__main__":
+    rad_df = pd.read_csv(f'{env}/raw_data/raw_radiology.csv')
+    filter_rad_data(rad_df)

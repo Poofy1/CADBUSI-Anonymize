@@ -59,7 +59,7 @@ def get_radiology_data(limit=None):
     -- Then get all BREAST radiology data for these patients
     SELECT DISTINCT 
       PAT_PATIENT.CLINIC_NUMBER AS PATIENT_ID,
-      imaging_studies.ACCESSION_IDENTIFIER_VALUE AS ACCESSION_NUMBER,
+      RAD_FACT_RADIOLOGY.ACCESSION_NBR AS ACCESSION_NUMBER,
       imaging_studies.DESCRIPTION,
       imaging_studies.PROCEDURE_CODE_TEXT,
       ENDPOINT.ADDRESS AS ENDPOINT_ADDRESS,
@@ -71,17 +71,22 @@ def get_radiology_data(limit=None):
       RAD_FACT_RADIOLOGY.RADIOLOGY_DTM,
       RAD_FACT_RADIOLOGY.RADIOLOGY_REVIEW_DTM,
       RADTEST_DIM_RADIOLOGY_TEST_NAME.RADIOLOGY_TEST_DESCRIPTION AS TEST_DESCRIPTION
-    FROM `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.ImagingStudy` imaging_studies
-    INNER JOIN breast_imaging_patients ON imaging_studies.clinic_number = breast_imaging_patients.PATIENT_ID
+    FROM breast_imaging_patients
     INNER JOIN 
       `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.Patient` PAT_PATIENT 
-      ON (imaging_studies.clinic_number = PAT_PATIENT.clinic_number)
+      ON breast_imaging_patients.PATIENT_ID = PAT_PATIENT.CLINIC_NUMBER
     INNER JOIN 
+      `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.DIM_PATIENT` PAT_DIM_PATIENT
+      ON PAT_PATIENT.CLINIC_NUMBER = PAT_DIM_PATIENT.PATIENT_CLINIC_NUMBER
+    INNER JOIN 
+      `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.FACT_RADIOLOGY` RAD_FACT_RADIOLOGY 
+      ON PAT_DIM_PATIENT.PATIENT_DK = RAD_FACT_RADIOLOGY.PATIENT_DK
+    LEFT JOIN 
+      `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.ImagingStudy` imaging_studies
+      ON (RAD_FACT_RADIOLOGY.ACCESSION_NBR = imaging_studies.ACCESSION_IDENTIFIER_VALUE)
+    LEFT JOIN 
       `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.Endpoint` ENDPOINT 
       ON (imaging_studies.gcp_endpoint_id = ENDPOINT.id)
-    LEFT JOIN 
-      `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.FACT_RADIOLOGY` RAD_FACT_RADIOLOGY 
-      ON (imaging_studies.ACCESSION_IDENTIFIER_VALUE = RAD_FACT_RADIOLOGY.ACCESSION_NBR)
     INNER JOIN 
       `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.DIM_RADIOLOGY_TEST_NAME` RADTEST_DIM_RADIOLOGY_TEST_NAME 
       ON (RAD_FACT_RADIOLOGY.RADIOLOGY_TEST_NAME_DK = RADTEST_DIM_RADIOLOGY_TEST_NAME.RADIOLOGY_TEST_NAME_DK)
