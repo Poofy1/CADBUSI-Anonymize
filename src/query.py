@@ -39,17 +39,20 @@ def get_radiology_data(limit=None):
     client = bigquery.Client()
     
     query = f"""
-    -- First identify patients with breast imaging studies
+    -- First identify patients with breast imaging studies and at least one US modality
     WITH breast_imaging_patients AS (
       SELECT DISTINCT PAT_PATIENT.CLINIC_NUMBER AS PATIENT_ID
       FROM `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.ImagingStudy` imaging
       INNER JOIN `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.Patient` PAT_PATIENT 
-      ON (imaging.clinic_number = PAT_PATIENT.clinic_number)
+        ON (imaging.clinic_number = PAT_PATIENT.clinic_number)
+      INNER JOIN `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.FACT_RADIOLOGY` RAD_FACT_RADIOLOGY 
+        ON (imaging.ACCESSION_IDENTIFIER_VALUE = RAD_FACT_RADIOLOGY.ACCESSION_NBR)
       WHERE procedure_code_coding_code IN ({BREAST_FILTER})
+        AND RAD_FACT_RADIOLOGY.SERVICE_MODALITY_CODE = 'US'
     """
     
     if limit is not None:
-        query += f"\nLIMIT {limit}"
+        query += f"\nLIMIT {limit}\n"
         
     query += f"""
     )
