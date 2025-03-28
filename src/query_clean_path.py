@@ -6,27 +6,51 @@ import re
 env = os.path.dirname(os.path.abspath(__file__))
 env = os.path.dirname(env)  # Go back one directory
 
-def check_text_for_laterality(text):
-    if pd.isna(text):
-        return None
+def determine_laterality(row):
+    # Function to check a single text field
+    def check_text_for_laterality(text, right_text, left_text):
+        if pd.isna(text):
+            return None
+        
+        text = text.upper()
+        
+        # Check if both LEFT and RIGHT appear
+        has_right = any(x in text for x in right_text)
+        has_left = any(x in text for x in left_text)
+        
+        if has_right and has_left:
+            return "BILATERAL"
+        
+        # Check for clear RIGHT indicators
+        elif has_right and "BILATERAL" not in text:
+            return "RIGHT"
+        
+        # Check for clear LEFT indicators
+        elif has_left and "BILATERAL" not in text:
+            return "LEFT"
+        
+        # Check for explicit BILATERAL indicators
+        elif "BILATERAL" in text:
+            return "BILATERAL"
+        
+        # If no laterality is found, return None
+        else:
+            return None
     
-    text = str(text).upper()
+    # First try PART_DESCRIPTION column
+    if 'PART_DESCRIPTION' in row and not pd.isna(row['PART_DESCRIPTION']):
+        laterality = check_text_for_laterality(row['PART_DESCRIPTION'], ["RIGHT"], ["LEFT"])
+        if laterality is not None:
+            return laterality
     
-    # Check for clear RIGHT indicators
-    if any(x in text for x in ["RIGHT", "R BI"]) and "BILATERAL" not in text:
-        return "RIGHT"
+    # If not found or PART_DESCRIPTION is empty, try SPECIMEN_NOTE
+    if 'SPECIMEN_NOTE' in row and not pd.isna(row['SPECIMEN_NOTE']):
+        laterality = check_text_for_laterality(row['SPECIMEN_NOTE'], ["RIGHT"], ["LEFT"])
+        if laterality is not None:
+            return laterality
     
-    # Check for clear LEFT indicators
-    elif any(x in text for x in ["LEFT", "L BI"]) and "BILATERAL" not in text:
-        return "LEFT"
-    
-    # Check for BILATERAL indicators
-    elif "BILATERAL" in text:
-        return "BILATERAL"
-    
-    # If no laterality is found, return None
-    else:
-        return None
+    # If still not found, return None
+    return None
 
 def extract_final_diagnosis(text):
     if pd.isna(text):
@@ -123,7 +147,7 @@ def filter_path_data(pathology_df):
     print("Parsing Pathology Data")
     
     # Extract laterality from PART_DESCRIPTION
-    pathology_df['Pathology_Laterality'] = pathology_df['PART_DESCRIPTION'].apply(check_text_for_laterality)
+    pathology_df['Pathology_Laterality'] = pathology_df.apply(determine_laterality, axis=1)
     
     # Extract final diagnosis from SPECIMEN_NOTE
     pathology_df['final_diag'] = pathology_df['SPECIMEN_NOTE'].apply(extract_final_diagnosis)
@@ -166,3 +190,7 @@ def filter_path_data(pathology_df):
     output_df.to_csv(f'{env}/raw_data/parsed_pathology.csv', index=False)
     
     return output_df
+
+if __name__ == "__main__":
+    pathology_df = pd.read_csv(f'{env}/raw_data/raw_pathology.csv')
+    filter_path_data(pathology_df)
