@@ -6,66 +6,163 @@ env = os.path.dirname(os.path.abspath(__file__))
 env = os.path.dirname(env)  # Go back one directory
 
 
-def determine_final_interpretation(final_df):
-    """Determine final_interpretation for each patient based on specified rules."""
-    # Get today's date to check for sufficient follow-up period
+def check_benign_based_on_followup(final_df):
+    """
+    Check for benign cases based on 18-month follow-up without malignancy indicators.
+    """
     today = pd.Timestamp.now()
-    
-    # Define trigger words that indicate possible malignancy
     trigger_words = ['malignant', 'cancer', 'carcinoma', 'intermediate', 'malignancy']
     
     for patient_id in final_df['PATIENT_ID'].unique():
-        # Get all records for this patient
         patient_mask = final_df['PATIENT_ID'] == patient_id
         patient_records = final_df[patient_mask].copy()
-        
-        # Sort by date for chronological processing
         patient_records = patient_records.sort_values('DATE')
         
-        # Process each row chronologically
         for idx, row in patient_records.iterrows():
-            # Skip rows with missing effective date
             if pd.isna(row['DATE']):
                 continue
                 
-            # Check if this is an ultrasound
             if row['MODALITY'] == 'US':
-                # Only consider this row if it's old enough to have 18 months of follow-up data
                 if (today - row['DATE']).days < 540:  # Less than 18 months of follow-up
                     continue
                     
-                # Define the window: 3 months back, 18 months forward
-                start_date = row['DATE'] - pd.Timedelta(days=90)
+                start_date = row['DATE'] - pd.Timedelta(days=12)
                 end_date = row['DATE'] + pd.Timedelta(days=540)
                 
-                # Find records in the specified time window
                 records_in_timeframe = patient_records[
                     (patient_records['DATE'] >= start_date) &
                     (patient_records['DATE'] <= end_date)
                 ]
                 
-                # Check for any trigger words in Biopsy or simple_diagnosis fields
                 has_trigger_words = False
                 for _, record in records_in_timeframe.iterrows():
-                    # Check Biopsy field if it exists and is not None/NaN
                     if 'Biopsy' in record and pd.notna(record['Biopsy']):
                         biopsy_text = str(record['Biopsy']).lower()
                         if any(word in biopsy_text for word in trigger_words):
                             has_trigger_words = True
                             break
                     
-                    # Check simple_diagnosis field if it exists and is not None/NaN
-                    if 'simple_diagnosis' in record and pd.notna(record['simple_diagnosis']):
-                        diagnosis_text = str(record['simple_diagnosis']).lower()
+                    if 'path_interpretation' in record and pd.notna(record['path_interpretation']):
+                        diagnosis_text = str(record['path_interpretation']).lower()
                         if any(word in diagnosis_text for word in trigger_words):
                             has_trigger_words = True
                             break
                 
-                # If no trigger words found, mark as BENIGN
                 if not has_trigger_words:
-                    final_df.at[idx, 'final_interpretation'] = 'BENIGN'
+                    final_df.at[idx, 'final_interpretation'] = 'BENIGN1'
     
     return final_df
+
+
+def check_malignant_from_biopsy(final_df):
+    """
+    Check for malignancy indicators in biopsy results for cases without interpretation,
+    but only for rows where MODALITY is 'US'.
+    """
+    trigger_words = ['malignant', 'cancer', 'carcinoma', 'intermediate', 'malignancy']
+    
+    for idx, row in final_df.iterrows():
+        # Only process rows where MODALITY is 'US'
+        if pd.notna(row.get('MODALITY')) and row['MODALITY'] == 'US':
+            if pd.isna(row['final_interpretation']) or row['final_interpretation'] == '':
+                if 'Biopsy' in row and pd.notna(row['Biopsy']):
+                    biopsy_text = str(row['Biopsy']).lower()
+                    if any(word in biopsy_text for word in trigger_words):
+                        final_df.at[idx, 'final_interpretation'] = 'MALIGNANT1'
+    
+    return final_df
+
+
+def check_from_next_diagnosis(final_df, days=180):
+    """
+    For 'US' rows with empty final_interpretation, check if the next chronological 
+    record with a path_interpretation within 'days' is 'BENIGN' or 'MALIGNANT', and set 
+    final_interpretation to 'BENIGN2' or 'MALIGNANT2' if the laterality matches between 
+    the US study and the pathology.
+    """
+    for patient_id in final_df['PATIENT_ID'].unique():
+        patient_mask = final_df['PATIENT_ID'] == patient_id
+        patient_records = final_df[patient_mask].copy()
+        
+        # Only proceed if there are multiple records for this patient
+        if len(patient_records) < 2:
+            continue
+        
+        # Sort records by date
+        patient_records = patient_records.sort_values('DATE')
+        
+        # Iterate through US records with empty final_interpretation
+        for idx, current_row in patient_records.iterrows():
+            # Check if current row is US with empty final_interpretation
+            if (pd.notna(current_row.get('MODALITY')) and 
+                current_row['MODALITY'] == 'US' and
+                (pd.isna(current_row['final_interpretation']) or 
+                 current_row['final_interpretation'] == '')):
+                
+                # Get current date and calculate future date
+                if pd.isna(current_row['DATE']):
+                    continue
+                    
+                # Skip if Study_Laterality is missing
+                if pd.isna(current_row.get('Study_Laterality')):
+                    continue
+                
+                current_date = current_row['DATE']
+                future_date = current_date + pd.Timedelta(days=days) 
+                current_laterality = current_row['Study_Laterality']
+                
+                # Find future records within the time window
+                future_records = patient_records[
+                    (patient_records['DATE'] > current_date) & 
+                    (patient_records['DATE'] <= future_date)
+                ]
+                
+                # Look for the next record with a valid path_interpretation
+                for _, future_row in future_records.iterrows():
+                    if pd.notna(future_row.get('path_interpretation')):
+                        # Check if pathology laterality exists and matches the study laterality
+                        if (pd.notna(future_row.get('Pathology_Laterality')) and 
+                            future_row['Pathology_Laterality'] == current_laterality):
+                            
+                            # Check if benign or malignant
+                            path_interp = future_row['path_interpretation'].upper()
+                            if path_interp == 'BENIGN':
+                                final_df.at[idx, 'final_interpretation'] = 'BENIGN2'
+                            elif path_interp == 'MALIGNANT':
+                                final_df.at[idx, 'final_interpretation'] = 'MALIGNANT2'
+                        
+                            break  # Stop after finding the first record with a diagnosis
+    
+    return final_df
+
+def determine_final_interpretation(final_df):
+    """
+    Determine final_interpretation for each patient based on specified rules.
+    """
+    # First check: Identify BENIGN1 cases based on follow-up period
+    final_df = check_benign_based_on_followup(final_df)
+    
+    # Second check: Identify MALIGNANT1 cases from biopsy results for remaining cases
+    final_df = check_malignant_from_biopsy(final_df)
+    
+    # Third check: Identify BENIGN2 cases based on next chronological path_interpretation
+    final_df = check_from_next_diagnosis(final_df)
+    
+    return final_df
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def prepare_dataframes(rad_df, path_df):
@@ -101,7 +198,7 @@ def combine_dataframes(rad_df, path_df):
         # Set pathology data
         new_row['Pathology_Laterality'] = path_row.get('Pathology_Laterality')
         new_row['final_diag'] = path_row.get('final_diag')
-        new_row['simple_diagnosis'] = path_row.get('simple_diagnosis')
+        new_row['path_interpretation'] = path_row.get('path_interpretation')
         
         path_rows.append(new_row)
     
@@ -128,7 +225,7 @@ def create_final_dataset(rad_df, path_df):
     final_df = determine_final_interpretation(final_df)
     
     # Save to CSV
-    final_df.to_csv(f'{env}/raw_data/final_dataset.csv', index=False)
+    final_df.to_csv(f'{env}/raw_data/combined_dataset.csv', index=False)
     
     # Print statistics
     print(f"Final dataset created with {len(final_df)} records")
@@ -136,6 +233,13 @@ def create_final_dataset(rad_df, path_df):
     print(f"Added pathology records: {len(path_df)}")
     print(f"Records marked as BENIGN: {(final_df['final_interpretation'] == 'BENIGN').sum()}")
     print(f"Records marked as MALIGNANT: {(final_df['final_interpretation'] == 'MALIGNANT').sum()}")
+    
+    
+    # Filter to keep only rows with 'US' in MODALITY
+    final_df_us = final_df[final_df['MODALITY'].str.contains('US', na=False, case=False)]
+    
+    # Save the US-only filtered dataset
+    final_df_us.to_csv(f'{env}/raw_data/final_data.csv', index=False)
     
     return final_df
 

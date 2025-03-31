@@ -7,7 +7,6 @@ env = os.path.dirname(os.path.abspath(__file__))
 env = os.path.dirname(env)  # Go back one directory
 
 
-
 def determine_laterality(row):
     # Function to check a single text field
     def check_text_for_laterality(text, right_text, left_text):
@@ -54,7 +53,22 @@ def determine_laterality(row):
     return None
 
 
-def extract_birads_and_description(text):
+def extract_birads_and_description(row):
+    # First try RADIOLOGY_REPORT if available
+    if 'RADIOLOGY_REPORT' in row and not pd.isna(row['RADIOLOGY_REPORT']):
+        text = row['RADIOLOGY_REPORT']
+        result = extract_birads_from_text(text)
+        if result[0] is not None:  # If BI-RADS was found in RADIOLOGY_REPORT
+            return result
+    
+    # If no result from RADIOLOGY_REPORT, try RADIOLOGY_NARRATIVE
+    if 'RADIOLOGY_NARRATIVE' in row and not pd.isna(row['RADIOLOGY_NARRATIVE']):
+        text = row['RADIOLOGY_NARRATIVE']
+        return extract_birads_from_text(text)
+    
+    return None, None
+
+def extract_birads_from_text(text):
     if pd.isna(text):
         return None, None
     
@@ -247,7 +261,7 @@ def filter_rad_data(radiology_df):
     radiology_df['Density_Desc'] = radiology_df['RADIOLOGY_REPORT'].apply(extract_density)
     
     # Apply the BI-RADS extraction and create separate columns
-    birads_results = radiology_df['RADIOLOGY_REPORT'].apply(extract_birads_and_description)
+    birads_results = radiology_df.apply(extract_birads_and_description, axis=1)
     radiology_df['BI-RADS'] = [result[0] for result in birads_results]
     radiology_df['Biopsy'] = [result[1] for result in birads_results]
     
@@ -259,13 +273,13 @@ def filter_rad_data(radiology_df):
     
     # Extract impression text
     radiology_df['rad_impression'] = radiology_df['RADIOLOGY_REPORT'].apply(extract_rad_impression)
-    
+
     # Check for biopsy in DESCRIPTION column
     radiology_df['is_biopsy'] = radiology_df.apply(check_for_biopsy, axis=1)
         
     pd.set_option('display.max_colwidth', None)
     # Columns to drop
-    columns_to_drop = ['RADIOLOGY_NARRATIVE', 'PROCEDURE_CODE_TEXT', 'SERVICE_RESULT_STATUS', 'RADIOLOGY_REPORT', 'RAD_SERVICE_RESULT_STATUS', 'RADIOLOGY_REVIEW_DTM']
+    columns_to_drop = ['RADIOLOGY_NARRATIVE', 'PROCEDURE_CODE_TEXT', 'SERVICE_RESULT_STATUS', 'RADIOLOGY_REPORT', 'RAD_SERVICE_RESULT_STATUS']
     radiology_df = radiology_df.drop(columns=columns_to_drop, errors='ignore')
     
     radiology_df.to_csv(f'{env}/raw_data/parsed_radiology.csv', index=False)
