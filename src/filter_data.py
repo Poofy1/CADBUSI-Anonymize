@@ -11,7 +11,7 @@ def check_benign_based_on_followup(final_df):
     Check for benign cases based on 18-month follow-up without malignancy indicators.
     """
     today = pd.Timestamp.now()
-    trigger_words = ['malignant', 'cancer', 'carcinoma', 'intermediate', 'malignancy']
+    trigger_words = ['malignant', 'proven malignancy']
     
     for patient_id in final_df['PATIENT_ID'].unique():
         patient_mask = final_df['PATIENT_ID'] == patient_id
@@ -73,12 +73,15 @@ def check_malignant_from_biopsy(final_df):
     return final_df
 
 
-def check_from_next_diagnosis(final_df, days=180):
+def check_from_next_diagnosis(final_df, days=240):
     """
     For 'US' rows with empty final_interpretation, check if the next chronological 
     record with a path_interpretation within 'days' is 'BENIGN' or 'MALIGNANT', and set 
     final_interpretation to 'BENIGN2' or 'MALIGNANT2' if the laterality matches between 
     the US study and the pathology.
+    
+    Special case: If Study_Laterality is 'BILATERAL', consider any future laterality,
+    and if any MALIGNANT is present within the time frame, set to 'MALIGNANT2'.
     """
     for patient_id in final_df['PATIENT_ID'].unique():
         patient_mask = final_df['PATIENT_ID'] == patient_id
@@ -117,21 +120,38 @@ def check_from_next_diagnosis(final_df, days=180):
                     (patient_records['DATE'] <= future_date)
                 ]
                 
-                # Look for the next record with a valid path_interpretation
-                for _, future_row in future_records.iterrows():
-                    if pd.notna(future_row.get('path_interpretation')):
-                        # Check if pathology laterality exists and matches the study laterality
-                        if (pd.notna(future_row.get('Pathology_Laterality')) and 
-                            future_row['Pathology_Laterality'] == current_laterality):
+                # Handle BILATERAL case differently
+                if current_laterality == 'BILATERAL':
+                    # Check all future records with pathology interpretation
+                    path_interpretations = []
+                    for _, future_row in future_records.iterrows():
+                        if pd.notna(future_row.get('path_interpretation')):
+                            path_interpretations.append(future_row['path_interpretation'].upper())
+                    
+                    # If any MALIGNANT is found, set to MALIGNANT2
+                    if 'MALIGNANT' in path_interpretations:
+                        final_df.at[idx, 'final_interpretation'] = 'MALIGNANT2'
+                    # If no MALIGNANT but at least one BENIGN, set to BENIGN2
+                    elif 'BENIGN' in path_interpretations:
+                        final_df.at[idx, 'final_interpretation'] = 'BENIGN2'
+                
+                # Handle regular laterality matching
+                else:
+                    # Look for the next record with a valid path_interpretation
+                    for _, future_row in future_records.iterrows():
+                        if pd.notna(future_row.get('path_interpretation')):
+                            # Check if pathology laterality exists and matches the study laterality
+                            if (pd.notna(future_row.get('Pathology_Laterality')) and 
+                                future_row['Pathology_Laterality'] == current_laterality):
+                                
+                                # Check if benign or malignant
+                                path_interp = future_row['path_interpretation'].upper()
+                                if path_interp == 'BENIGN':
+                                    final_df.at[idx, 'final_interpretation'] = 'BENIGN2'
+                                elif path_interp == 'MALIGNANT':
+                                    final_df.at[idx, 'final_interpretation'] = 'MALIGNANT2'
                             
-                            # Check if benign or malignant
-                            path_interp = future_row['path_interpretation'].upper()
-                            if path_interp == 'BENIGN':
-                                final_df.at[idx, 'final_interpretation'] = 'BENIGN2'
-                            elif path_interp == 'MALIGNANT':
-                                final_df.at[idx, 'final_interpretation'] = 'MALIGNANT2'
-                        
-                            break  # Stop after finding the first record with a diagnosis
+                                break  # Stop after finding the first record with a diagnosis
     
     return final_df
 
