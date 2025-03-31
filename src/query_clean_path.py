@@ -191,90 +191,147 @@ def categorize_pathology(text):
     text = str(text).upper()
     
     # Important: First check for explicit malignant diagnoses
-    # This addresses multi-part reports where cancer appears in a specific part
     explicit_malignant_patterns = [
-        "INVASIVE DUCTAL CARCINOMA", 
-        "DUCTAL CARCINOMA IN SITU", 
-        "DCIS",
-        "METASTATIC CARCINOMA",
-        "POSITIVE FOR CARCINOMA",
-        "INVASIVE CARCINOMA"
+        r"INVASIVE\s+DUCTAL\s+CARCINOMA", 
+        r"DUCTAL\s+CARCINOMA\s+IN\s+SITU", 
+        r"DCIS",
+        r"METASTATIC\s+CARCINOMA",
+        r"POSITIVE\s+FOR\s+CARCINOMA",
+        r"INVASIVE\s+CARCINOMA"
     ]
     
     for pattern in explicit_malignant_patterns:
-        if pattern in text:
+        if re.search(pattern, text):
             return "MALIGNANT"
     
-    # Check for explicit negation patterns
+    # Check for explicit negation patterns - expanded to catch truncated words
     negation_patterns = [
-        "NEGATIVE FOR MALIGNANCY", 
-        "NO EVIDENCE OF MALIGNANCY",
-        "NEGATIVE FOR ATYPIA AND CARCINOMA",
-        "NO EVIDENCE OF ATYPIA OR MALIGNANCY",
-        "NO EVIDENCE OF ATYPIA AND MALIGNANCY",
-        "THERE IS NO EVIDENCE OF ATYPIA OR MALIGNANCY"
+        r"NEGATIVE\s+FOR\s+MALIGNAN[CT]", 
+        r"NO\s+EVIDENCE\s+OF\s+MALIGNAN[CT]",
+        r"NEGATIVE\s+FOR\s+ATYPIA\s+AND\s+CARCINOMA",
+        r"NO\s+EVIDENCE\s+OF\s+ATYPIA\s+OR\s+MALIGNAN[CT]",
+        r"NO\s+EVIDENCE\s+OF\s+ATYPIA\s+AND\s+MALIGNAN[CT]",
+        r"THERE\s+IS\s+NO\s+EVIDENCE\s+OF\s+ATYPIA\s+OR\s+MALIGNAN[CT]",
+        r"LYMPH\s+NODES?\s+NEGATIVE\s+FOR\s+MALIGNAN[CT]",
+        r"NEGATIVE\s+FOR\s+TUM[O|OR]",
+        r"NO\s+MALIGNANCY\s+PRESENT"
     ]
     
     # Only consider a negation pattern if it refers to the entire sample
     for pattern in negation_patterns:
-        if pattern in text:
-            # If negation appears in only one part of a multi-part report,
-            # we can't conclude the entire sample is benign
-            if "PART A" in text or "PART B" in text or ": A." in text or ": B." in text:
-                continue
+        if re.search(pattern, text):
             return "BENIGN"
     
     # Malignant indicators - clearly cancer/malignancy
     malignant_terms = [
-        "MALIGNANT", "CARCINOMA", "CANCER", "INVASIVE", "DCIS",
-        "DUCTAL CARCINOMA", "LOBULAR CARCINOMA", "ADENOCARCINOMA", 
-        "METASTATIC", "METASTASIS", "POSITIVE FOR MALIGNANCY", 
-        "HIGH GRADE DYSPLASIA", "LYMPHOVASCULAR INVASION"
+        r"MALIGNANT", r"CARCINOMA", r"CANCER", r"INVASIVE", r"DCIS",
+        r"DUCTAL\s+CARCINOMA", r"LOBULAR\s+CARCINOMA", r"ADENOCARCINOMA", 
+        r"METASTATIC", r"METASTASIS", r"POSITIVE\s+FOR\s+MALIGNANCY", 
+        r"HIGH\s+GRADE\s+DYSPLASIA", r"LYMPHOVASCULAR\s+INVASION"
     ]
     
     # Check if any malignant term is present (not negated)
     for term in malignant_terms:
-        if term in text:
-            # Check if negated in context
-            term_pos = text.find(term)
-            start_window = max(0, term_pos - 20)
-            context = text[start_window:term_pos + len(term) + 5]
-            if "NO " + term not in context and "NEGATIVE FOR " + term not in context:
-                return "MALIGNANT"
+        if re.search(term, text):
+            term_match = re.search(term, text)
+            if term_match:
+                term_pos = term_match.start()
+                start_window = max(0, term_pos - 20)
+                context = text[start_window:term_pos + len(term_match.group()) + 5]
+                if not re.search(r"NO\s+" + term, context) and not re.search(r"NEGATIVE\s+FOR\s+" + term, context):
+                    return "MALIGNANT"
     
-    # Enhanced benign indicators - now including former "indeterminate" findings
+    # Check for implant/expander-related cases specifically
+    implant_patterns = [
+        r"EXPLANTED\s+(?:LEFT|RIGHT)?\s*BREAST\s+(?:TISSUE\s+)?(?:IMPLANT|EXPANDER)",
+        r"BREAST\s+IMPLANT\s+CAPSUL",
+        r"CONSISTENT\s+WITH\s+BREAST\s+IMPLANT\s+CAPSUL",
+        r"GROSS\s+ONLY[,\s]*AS\s+DESCRIBE",
+        r"BREAST\s+IMPLANT\s+IDENTIFIE[D]*",
+        r"BREAST\s+CAPSULE[,\s].*CAPSULECTOMY",
+        r"FIBROUS\s+CAPSULE\s+WITH\s+(?:FOREIGN\s+BODY[^\w]+TYPE)?\s*GRANULOMATOUS\s+REACTIO[N]*"
+    ]
+    
+    implant_match = False
+    for pattern in implant_patterns:
+        if re.search(pattern, text):
+            implant_match = True
+            break
+    
+    # Enhanced benign indicators - additional terms for common benign findings
     benign_terms = [
-        # Original benign terms
-        "FIBROCYSTIC", "FIBROADENOMA", "INTRADUCTAL PAPILLOMA", "FIBROMATOSIS",
-        "NORMAL BREAST TISSUE", "REACTIVE CHANGES", "FAT NECROSIS", 
-        "USUAL DUCTAL HYPERPLASIA", "UDH", "PSEUDOANGIOMATOUS STROMAL HYPERPLASIA", 
-        "PASH", "COLUMNAR CELL CHANGES", "NONPROLIFERATIVE FIBROCYSTIC CHANGE",
-        "NODULAR ADENOSIS", "APOCRINE METAPLASIA", "USUAL TYPE HYPERPLASIA",
+        # Original benign terms with flexible matching
+        r"FIBRO(?:CYSTIC|ADENO(?:M|MA))", r"INTRADUCTAL\s+PAPILLOMA", r"FIBROMATOSIS",
+        r"NORMAL\s+BREAST\s+TISSUE", r"REACTIVE\s+CHANGES", r"FAT\s+NECROSIS", 
+        r"USUAL\s+DUCTAL\s+HYPERPLAS[I|IA]", r"UDH", r"PSEUDOANGIOMATOUS\s+STROMAL\s+HYPERPLAS[I|IA]", 
+        r"PASH", r"COLUMNAR\s+CELL\s+CHANGES", r"NONPROLIFERATIVE\s+FIBROCYSTIC\s+CHANGE",
+        r"NODULAR\s+ADENOSIS", r"APOCRINE\s+METAPLAS[I|IA]", r"USUAL\s+TYPE\s+HYPERPLAS[I|IA]",
+        r"ADENOS[I|IS]",
+        r"FIBROADIPOSE\s+TISSUE(?:\s+WITH\s+SCARRING)?",
+        r"SKIN\s+WITH\s+SCARRING",
+        r"(?:DENSE)?\s*FIBROUS\s+TISSUE",
+        r"FOAMY\s+HISTIOCYTES",
+        r"GIANT\s+CELLS",
+        r"REDUCTION\s+MAMMOPLASTY",
+        r"FIBROSIS",
+        
+        # New terms for inflammatory and benign conditions
+        r"CHRONIC\s+(?:AND\s+)?GRANULOMATOUS\s+INFLAMMATION",
+        r"FOREIGN\s+BODY\s+GIANT\s+CELL\s+REACTION",
+        r"CYSTICALLY\s+DILATED\s+SQUAMOUS\s+LINED\s+DUCT",
+        r"GRANULOMATOUS\s+INFLAMMATION",
+        r"FOREIGN\s+BODY[^\w]+TYPE\s+GRANULOMATOUS\s+REACTIO[N]*",
+        
+        # Biopsy site changes and calcifications
+        r"CHANGES\s+COMPATIBLE\s+WITH\s+PRIOR\s+PROCEDURE\s+SITE",
+        r"DYSTROPHIC\s+CALCIFICATIONS?",
+        r"BIOPSY\s+SITE\s+CHANGES",
+        r"PRIOR\s+BIOPSY\s+SITE",
+        r"POST[\s\-]PROCEDURAL\s+CHANGES",
+        
+        # Uncertain/non-diagnostic findings (treat as benign if no clear malignancy)
+        r"PAPILLARY\s+LESION\s+CAN\s+NOT\s+BE\s+EXCLUDED",
+        r"SUGGESTING\s+PAPILLARY\s+LESION",
+        r"CLINICAL\s+AND\s+RADIOLOGIC\s+CORRELATION\s+IS\s+RECOMMENDED",
+        r"DOES\s+NOT\s+REVEAL\s+A\s+SPECIFIC\s+LESION",
+        r"SPARSE\s+BREAST\s+TISSUE",
+        r"SUGGESTING\s+POSSIBLE\s+DISRUPTION",
         
         # Former "indeterminate" findings now classified as benign
-        "ATYPICAL", "ATYPIA", "ADH", "ATYPICAL DUCTAL HYPERPLASIA", 
-        "ALH", "ATYPICAL LOBULAR HYPERPLASIA"
+        r"ATYPICAL", r"ATYPIA", r"ADH", r"ATYPICAL\s+DUCTAL\s+HYPERPLAS[I|IA]", 
+        r"ALH", r"ATYPICAL\s+LOBULAR\s+HYPERPLAS[I|IA]"
     ]
     
     # Check for benign indicators
     for term in benign_terms:
-        if term in text:
+        if re.search(term, text):
             return "BENIGN"
+    
+    # If we matched an implant pattern but no specific benign or malignant findings,
+    # classify as BENIGN since these are generally non-pathological specimens
+    if implant_match:
+        return "BENIGN"
     
     # Additional benign indicators or explicit "BENIGN" statement
     if "BENIGN" in text:
         return "BENIGN"
     
     # Some potentially concerning findings that aren't clearly benign 
-    # but also not malignant - classifying as BENIGN instead of INDETERMINATE
+    # but also not malignant - classifying as BENIGN
     less_concerning_terms = [
-        "SUSPICIOUS", "INDETERMINATE", "UNCERTAIN",
-        "CANNOT RULE OUT"
+        r"SUSPICIOUS", r"INDETERMINATE", r"UNCERTAIN",
+        r"CANNOT\s+RULE\s+OUT", r"CAN\s+NOT\s+BE\s+EXCLUDED"
     ]
     
     for term in less_concerning_terms:
-        if term in text and "NEGATIVE FOR " + term not in text and "NO EVIDENCE OF " + term not in text:
-            return "BENIGN"  # Previously would have been INDETERMINATE
+        pattern = term
+        if re.search(pattern, text) and not re.search(r"NEGATIVE\s+FOR\s+" + pattern, text) and not re.search(r"NO\s+EVIDENCE\s+OF\s+" + pattern, text):
+            return "BENIGN"
+    
+    # Default to BENIGN for mastectomy, excision, biopsy, capsulectomy, and removal specimens 
+    # without malignant findings - this is a conservative assumption
+    if re.search(r"(MASTECTOMY|NIPPLE-SPARING\s+MASTECTOMY|EXCISION|BIOPSY|CAPSULECTOMY|REMOVAL)", text) and not re.search(r"MALIGNAN[CT]|CARCINOMA|CANCER", text):
+        return "BENIGN"
     
     # If no clear indicators found
     return "UNKNOWN"
