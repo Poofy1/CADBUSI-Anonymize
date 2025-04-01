@@ -212,7 +212,7 @@ def combine_dataframes(rad_df, path_df):
     path_rows = []
     for _, path_row in path_df.iterrows():
         # Create a new row with pathology data
-        new_row = pd.Series(index=rad_df.columns)
+        new_row = pd.Series(index=rad_df.columns, dtype='object')  # Set dtype to object to avoid type errors
         new_row['PATIENT_ID'] = path_row['PATIENT_ID']
         new_row['DATE'] = path_row['DATE']
         
@@ -225,10 +225,10 @@ def combine_dataframes(rad_df, path_df):
     
     # Create a DataFrame with pathology records
     path_records_df = pd.DataFrame(path_rows)
-    
+   
     # Combine radiology records and pathology records
     final_df = pd.concat([rad_df, path_records_df], ignore_index=True)
-    
+   
     return final_df
 
 

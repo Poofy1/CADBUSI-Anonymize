@@ -286,6 +286,8 @@ def filter_rad_data(radiology_df):
     
     radiology_df.to_csv(f'{env}/raw_data/parsed_radiology.csv', index=False)
     
+    return radiology_df
+    
     
 if __name__ == "__main__":
     rad_df = pd.read_csv(f'{env}/raw_data/raw_radiology.csv')

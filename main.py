@@ -53,8 +53,8 @@ def main():
         rad_df, path_df = run_breast_imaging_query(limit=limit)
 
         # Parse that data
-        filter_rad_data(rad_df)
-        filter_path_data(path_df)
+        rad_df = filter_rad_data(rad_df)
+        path_df = filter_path_data(path_df)
         
         # Filter data
         create_final_dataset(rad_df, path_df)

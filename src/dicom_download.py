@@ -134,6 +134,9 @@ def deploy_cloud_run(bucket_name="shared-aif-bucket-87d1", bucket_path="Download
     cr_name = AR_NAME.replace("_", "-")
     vpc_connector = f"projects/{VPC_SHARED}/locations/{REGION}/connectors/{VPC_NAME}"
     
+    # Create environment variables string
+    env_vars = f"BUCKET_NAME={bucket_name},BUCKET_PATH={bucket_path}"
+    
     command = [
         "gcloud", "run", "deploy", cr_name,
         "--binary-authorization=default",
@@ -150,7 +153,7 @@ def deploy_cloud_run(bucket_name="shared-aif-bucket-87d1", bucket_path="Download
         "--timeout=3000",
         "--memory=4096Mi",
         "--min-instances=1",
-        f"--set-env-vars=BUCKET_NAME={bucket_name},BUCKET_PATH={bucket_path}",
+        f"--set-env-vars={env_vars}"
     ]
     
     try:
@@ -283,7 +286,7 @@ def process_csv_file(csv_file):
         # Create progress bar
         pbar = tqdm.tqdm(total=total_rows, desc="Publishing messages")
         for row in reader:
-            url = row.get('ENDPT_ADDRESS')
+            url = row.get('ENDPOINT_ADDRESS')
             if not url:
                 print(f"Warning: Missing URL in row: {row}")
                 pbar.update(1)
