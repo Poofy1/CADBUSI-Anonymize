@@ -6,6 +6,8 @@ from tqdm import tqdm
 from PIL import Image
 import hashlib
 from src.encrypt_keys import *
+from google.cloud import storage
+import tempfile
 env = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -175,7 +177,7 @@ def create_dcm_filename(ds, key):
 
     return filename, ds  # return the modified DICOM dataset along with the filename
 
-
+"""
 def process_single_dcm_file(dicom_file, target_directory, encryption_key, save_png, png_directory):
     # Read the DICOM file
     dataset = pydicom.dcmread(dicom_file, force=True)
@@ -240,3 +242,125 @@ def deidentify_dcm_files(directory_path, unzipped_path, target_directory, encryp
                 result = future.result()
             except Exception as exc:
                 print(f'An exception occurred: {exc}')
+
+"""
+
+
+def process_single_blob(blob, client, output_bucket_name, output_bucket_path, encryption_key, save_png):
+    """Process a single DICOM blob from GCP bucket"""
+    try:
+        # Download blob to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            blob.download_to_filename(temp_file.name)
+            
+            # Read the DICOM data
+            dataset = pydicom.dcmread(temp_file.name, force=True)
+            
+            # Check if this is a DICOM file we want to process
+            media_type = dicom_media_type(dataset)
+            if (media_type == 'image' and (0x0018, 0x6011) in dataset) or media_type == 'multi':
+                
+                # Create a new filename using encryption
+                new_filename, dataset = create_dcm_filename(dataset, encryption_key)
+                
+                # De-identify the DICOM dataset
+                dataset = deidentify_dicom(dataset)
+                
+                # Set the target path in GCP
+                output_blob_path = os.path.join(output_bucket_path, new_filename)
+                
+                # Save the deidentified DICOM to a temporary file
+                temp_output_path = f"{temp_file.name}_output"
+                dataset.save_as(temp_output_path)
+                
+                # Upload the deidentified DICOM back to GCP
+                output_bucket = client.bucket(output_bucket_name)
+                output_blob = output_bucket.blob(output_blob_path)
+                output_blob.upload_from_filename(temp_output_path)
+                
+                # If save_png flag is True, save as PNG and upload to GCP
+                if save_png:
+                    # Convert the Pixel Array data to a PNG
+                    image = Image.fromarray(dataset.pixel_array)
+                    
+                    # Save to a temporary file
+                    temp_png_path = f"{temp_file.name}.png"
+                    image.save(temp_png_path, "PNG")
+                    
+                    # Upload PNG to GCP
+                    png_output_path = output_blob_path.replace('.dcm', '.png')
+                    png_blob = output_bucket.blob(png_output_path)
+                    png_blob.upload_from_filename(temp_png_path)
+                    
+                    # Remove temporary PNG file
+                    os.unlink(temp_png_path)
+                
+                # Remove temporary output file
+                os.unlink(temp_output_path)
+                
+        # Remove the temporary input file
+        os.unlink(temp_file.name)
+        
+        return blob.name
+        
+    except Exception as e:
+        print(f"Error processing {blob.name}: {e}")
+        return None
+
+
+def deidentify_bucket_dicoms(bucket_name, bucket_path, output_bucket_name, output_bucket_path, encryption_key, save_png=False):
+    """Process DICOM files from a GCP bucket and upload deidentified versions to output bucket"""
+    # Initialize storage client
+    client = storage.Client()
+    
+    # Get the bucket and list all blobs matching the path
+    bucket = client.bucket(bucket_name)
+    blobs = list(bucket.list_blobs(prefix=bucket_path))
+    
+    # Filter for only DICOM files
+    dicom_blobs = [blob for blob in blobs if blob.name.lower().endswith('.dcm')]
+    
+    print(f"Found {len(dicom_blobs)} DICOM files in the bucket path")
+    
+    # Use ThreadPoolExecutor to process blobs in parallel
+    with ThreadPoolExecutor() as executor:
+        # Submit tasks to the executor
+        futures = {
+            executor.submit(
+                process_single_blob, 
+                blob, 
+                client, 
+                output_bucket_name, 
+                output_bucket_path, 
+                encryption_key, 
+                save_png
+            ): blob for blob in dicom_blobs
+        }
+        
+        # As each future is completed, retrieve the result
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing DICOM files"):
+            try:
+                result = future.result()
+            except Exception as exc:
+                print(f'An exception occurred: {exc}')
+
+
+# Example usage
+if __name__ == "__main__":
+    BUCKET_NAME = "shared-aif-bucket-87d1"
+    BUCKET_PATH = "Downloads"
+    BUCKET_OUTPUT_NAME = BUCKET_NAME 
+    BUCKET_OUTPUT_PATH = "anon_dicoms"
+    
+    # Get encryption key from the environment or configuration
+    encryption_key = get_encryption_key()  # This function should be defined in src.encrypt_keys
+    
+    # Process the DICOM files
+    deidentify_bucket_dicoms(
+        bucket_name=BUCKET_NAME,
+        bucket_path=BUCKET_PATH,
+        output_bucket_name=BUCKET_OUTPUT_NAME,
+        output_bucket_path=BUCKET_OUTPUT_PATH,
+        encryption_key=encryption_key,
+        save_png=False  # Set to True if you want to save PNGs as well
+    )

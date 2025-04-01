@@ -8,6 +8,56 @@ import struct
 def generate_key():
     return os.urandom(16)  # 128-bit key
 
+
+def get_encryption_key():
+    """
+    Retrieves or generates an encryption key for DICOM deidentification.
+    
+    The function looks for an existing key in a predefined location or environment variable.
+    If no key exists, it generates a new one and stores it.
+    
+    Returns:
+        bytes: A 16-byte encryption key for use with AES-128
+    """
+    # Check for key in environment variable first
+    import os
+    env_key_name = "DICOM_ENCRYPTION_KEY"
+    key_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "encryption_key.pkl")
+    
+    # Try to get key from environment variable (base64 encoded)
+    import base64
+    if env_key_name in os.environ:
+        try:
+            return base64.b64decode(os.environ[env_key_name])
+        except Exception as e:
+            print(f"Error loading key from environment: {e}")
+    
+    # If not in environment, try to load from file
+    import pickle
+    if os.path.exists(key_file_path):
+        try:
+            with open(key_file_path, 'rb') as key_file:
+                key = pickle.load(key_file)
+            print(f"Using existing encryption key from {key_file_path}")
+            return key
+        except Exception as e:
+            print(f"Error loading existing key file: {e}")
+    
+    # If no key exists, generate a new one
+    key = generate_key()  # Uses the existing generate_key function
+    
+    # Save the key to file for future use
+    try:
+        with open(key_file_path, 'wb') as key_file:
+            pickle.dump(key, key_file)
+        print(f"Generated new encryption key and saved to {key_file_path}")
+    except Exception as e:
+        print(f"Warning: Could not save encryption key to file: {e}")
+        print(f"Consider saving this key manually: {base64.b64encode(key).decode()}")
+    
+    return key
+
+
 def ff1_encrypt(key, number, domain_size):
     """
     Format-preserving encryption using a simplified FF1-based approach.

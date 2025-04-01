@@ -69,9 +69,19 @@ def main():
         key_output = f'{env}/encryption_key.pkl'
         key = encrypt_ids(dicom_query_file, output_file, key_output)
         
-        input_dicom_path = f'{env}/dicoms'
-        deidentified_path = f'{env}/anonymized'
-        deidentify_dcm_files(env, input_dicom_path, deidentified_path, key, save_png=True)
+
+        BUCKET_NAME = "shared-aif-bucket-87d1"
+        BUCKET_PATH = "Downloads"
+        BUCKET_OUTPUT_NAME = BUCKET_NAME 
+        BUCKET_OUTPUT_PATH = "anon_dicoms"
+        deidentify_bucket_dicoms(
+            bucket_name=BUCKET_NAME,
+            bucket_path=BUCKET_PATH,
+            output_bucket_name=BUCKET_OUTPUT_NAME,
+            output_bucket_path=BUCKET_OUTPUT_PATH,
+            encryption_key=key,
+            save_png=False  # Set to True if you want to save PNGs as well
+        )
     
     else:
         print("No action specified. Use --help for available options.")
