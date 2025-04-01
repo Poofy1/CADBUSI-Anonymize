@@ -1,19 +1,19 @@
 import os
 import pandas as pd
+from tqdm import tqdm
 
 # Get the current script directory and go back one directory
 env = os.path.dirname(os.path.abspath(__file__))
 env = os.path.dirname(env)  # Go back one directory
-
 
 def check_benign_based_on_followup(final_df):
     """
     Check for benign cases based on 18-month follow-up without malignancy indicators.
     """
     today = pd.Timestamp.now()
-    trigger_words = ['malignant', 'proven malignancy']
+    trigger_words = ['malignant', 'proven malignancy', 'proven cancer', 'carcinoma']
     
-    for patient_id in final_df['PATIENT_ID'].unique():
+    for patient_id in tqdm(final_df['PATIENT_ID'].unique(), desc="Checking benign based on followup"):
         patient_mask = final_df['PATIENT_ID'] == patient_id
         patient_records = final_df[patient_mask].copy()
         patient_records = patient_records.sort_values('DATE')
@@ -47,7 +47,7 @@ def check_benign_based_on_followup(final_df):
                         if any(word in diagnosis_text for word in trigger_words):
                             has_trigger_words = True
                             break
-                
+
                 if not has_trigger_words:
                     final_df.at[idx, 'final_interpretation'] = 'BENIGN1'
     
@@ -61,14 +61,15 @@ def check_malignant_from_biopsy(final_df):
     """
     trigger_words = ['malignant', 'cancer', 'carcinoma', 'intermediate', 'malignancy']
     
-    for idx, row in final_df.iterrows():
-        # Only process rows where MODALITY is 'US'
-        if pd.notna(row.get('MODALITY')) and row['MODALITY'] == 'US':
-            if pd.isna(row['final_interpretation']) or row['final_interpretation'] == '':
-                if 'Biopsy' in row and pd.notna(row['Biopsy']):
-                    biopsy_text = str(row['Biopsy']).lower()
-                    if any(word in biopsy_text for word in trigger_words):
-                        final_df.at[idx, 'final_interpretation'] = 'MALIGNANT1'
+    us_rows = final_df[(pd.notna(final_df.get('MODALITY'))) & (final_df['MODALITY'] == 'US')].index
+    
+    for idx in tqdm(us_rows, desc="Checking malignancy from biopsy"):
+        row = final_df.loc[idx]
+        if pd.isna(row['final_interpretation']) or row['final_interpretation'] == '':
+            if 'Biopsy' in row and pd.notna(row['Biopsy']):
+                biopsy_text = str(row['Biopsy']).lower()
+                if any(word in biopsy_text for word in trigger_words):
+                    final_df.at[idx, 'final_interpretation'] = 'MALIGNANT1'
     
     return final_df
 
@@ -83,7 +84,7 @@ def check_from_next_diagnosis(final_df, days=240):
     Special case: If Study_Laterality is 'BILATERAL', consider any future laterality,
     and if any MALIGNANT is present within the time frame, set to 'MALIGNANT2'.
     """
-    for patient_id in final_df['PATIENT_ID'].unique():
+    for patient_id in tqdm(final_df['PATIENT_ID'].unique(), desc="Checking diagnosis from next record"):
         patient_mask = final_df['PATIENT_ID'] == patient_id
         patient_records = final_df[patient_mask].copy()
         
@@ -245,37 +246,42 @@ def create_final_dataset(rad_df, path_df):
     final_df = determine_final_interpretation(final_df)
     
     # Save to CSV
-    final_df.to_csv(f'{env}/raw_data/combined_dataset.csv', index=False)
+    final_df.to_csv(f'{env}/raw_data/combined_dataset_debug.csv', index=False)
     
     # Print statistics
-    print(f"Final dataset created with {len(final_df)} records")
-    print(f"Original radiology records: {len(rad_df)}")
-    print(f"Added pathology records: {len(path_df)}")
-    print(f"Records marked as BENIGN: {(final_df['final_interpretation'] == 'BENIGN').sum()}")
-    print(f"Records marked as MALIGNANT: {(final_df['final_interpretation'] == 'MALIGNANT').sum()}")
+    print(f"Dataset created with {len(final_df)} records")
+
     
     
     # Filter to keep only rows with 'US' in MODALITY
     final_df_us = final_df[final_df['MODALITY'].str.contains('US', na=False, case=False)]
-    
+
+    # Remove rows with empty ENDPOINT_ADDRESS or empty final_interpretation
+    final_df_us = final_df_us[
+        final_df_us['ENDPOINT_ADDRESS'].notna() & 
+        final_df_us['final_interpretation'].notna()
+    ]
+
     # Save the US-only filtered dataset
-    final_df_us.to_csv(f'{env}/raw_data/final_data.csv', index=False)
+    os.makedirs(f'{env}/output', exist_ok=True)
+    final_df_us.to_csv(f'{env}/output/endpoint_data.csv', index=False)
+
+    # Print statistics
+    print(f"Dataset passed with {len(final_df_us)} results")
     
     return final_df
 
 
-# Main function to run the entire process
-def main():
+
+if __name__ == "__main__":
     # Load the parsed radiology and pathology data
     try:
         rad_file_path = f'{env}/raw_data/parsed_radiology.csv'
         path_file_path = f'{env}/raw_data/parsed_pathology.csv'
         
-        print(f"Loading radiology data from: {rad_file_path}")
         rad_df = pd.read_csv(rad_file_path)
         print(f"Loaded radiology data with {len(rad_df)} records")
         
-        print(f"Loading pathology data from: {path_file_path}")
         path_df = pd.read_csv(path_file_path)
         print(f"Loaded pathology data with {len(path_df)} records")
         
@@ -287,8 +293,3 @@ def main():
         print("Please make sure you've run the parsing scripts to create the parsed CSV files first.")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-
-
-# Run the main function when the script is executed directly
-if __name__ == "__main__":
-    main()

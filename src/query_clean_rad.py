@@ -191,7 +191,7 @@ def extract_rad_pathology_txt(text):
 
 def check_for_biopsy(row):
     """
-    Check if 'BIOPSY' appears in either DESCRIPTION or TEST_DESCRIPTION (case insensitive)
+    Check if 'BIOPSY' or 'BX' appears in either DESCRIPTION or TEST_DESCRIPTION (case insensitive)
     
     Args:
         row: The dataframe row with columns to check
@@ -201,12 +201,14 @@ def check_for_biopsy(row):
     """
     # Check DESCRIPTION column
     if 'DESCRIPTION' in row and not pd.isna(row['DESCRIPTION']):
-        if 'BIOPSY' in row['DESCRIPTION'].upper():
+        description_upper = row['DESCRIPTION'].upper()
+        if 'BIOPSY' in description_upper or 'BX' in description_upper:
             return 'T'
     
     # Check TEST_DESCRIPTION column
     if 'TEST_DESCRIPTION' in row and not pd.isna(row['TEST_DESCRIPTION']):
-        if 'BIOPSY' in row['TEST_DESCRIPTION'].upper():
+        test_description_upper = row['TEST_DESCRIPTION'].upper()
+        if 'BIOPSY' in test_description_upper or 'BX' in test_description_upper:
             return 'T'
     
     # If not found in either column, return 'F'

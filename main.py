@@ -4,9 +4,9 @@ from src.anonymize_dicoms import *
 from src.encrypt_keys import *
 from src.query_clean_path import filter_path_data
 from src.query_clean_rad import filter_rad_data
+from src.filter_data import create_final_dataset
 import argparse
 import os
-import time
 import sys
 env = os.path.dirname(os.path.abspath(__file__))
 
@@ -34,7 +34,7 @@ def main():
     args = parse_arguments()
     
     
-    dicom_query_file = f'{env}/dicom_query.csv'
+    dicom_query_file = f'{env}/output/endpoint_data.csv'
     
     
     # Handle query command
@@ -55,9 +55,13 @@ def main():
         # Parse that data
         filter_rad_data(rad_df)
         filter_path_data(path_df)
+        
+        # Filter data
+        create_final_dataset(rad_df, path_df)
     
     elif args.deploy or args.cleanup or args.rerun:
         dicom_download_remote_start(dicom_query_file, args.deploy, args.cleanup)
+        
     elif args.anon:
 
         
