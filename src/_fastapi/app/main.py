@@ -185,9 +185,9 @@ async def pubsub_push_handlers_receive(request: Request):
                     status_code=400, content={"message": "No DICOM URL in payload"}
                 )
             
-            # Set your bucket information
-            bucket_name = "shared-aif-bucket-87d1"  # Replace with your actual bucket name
-            bucket_path = "Downloads"               # Replace with your actual path
+            # Get bucket information from environment variables with defaults
+            bucket_name = os.environ.get("BUCKET_NAME", "")
+            bucket_path = os.environ.get("BUCKET_PATH", "Downloads")               
             
             # Retrieve and store the DICOM image
             success = await retrieve_and_store_dicom(dicom_url, bucket_name, bucket_path)

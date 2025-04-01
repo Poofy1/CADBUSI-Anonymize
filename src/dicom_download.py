@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import datetime
 import csv
 import os
 import subprocess
@@ -125,7 +125,7 @@ def wait_for_cloud_run_ready(cr_name, max_retries=5, retry_interval=10):
     return None
 
 
-def deploy_cloud_run():
+def deploy_cloud_run(bucket_name="shared-aif-bucket-87d1", bucket_path="Downloads"):
     """Deploy the FastAPI application to Cloud Run."""
     global CLOUD_RUN_URL
     
@@ -150,6 +150,7 @@ def deploy_cloud_run():
         "--timeout=3000",
         "--memory=4096Mi",
         "--min-instances=1",
+        f"--set-env-vars=BUCKET_NAME={bucket_name},BUCKET_PATH={bucket_path}",
     ]
     
     try:
@@ -368,13 +369,22 @@ def get_existing_cloud_run_url():
         return None
 
 
-def dicom_download_remote_start(csv_file = None, deploy = False, cleanup = False):
+def dicom_download_remote_start(csv_file=None, deploy=False, cleanup=False, 
+                               bucket_name="shared-aif-bucket-87d1", 
+                               bucket_path=None):
     global CLOUD_RUN_URL
     global PUBLISHER
     global TOPIC_PATH
     
     PUBLISHER = pubsub_v1.PublisherClient()
     TOPIC_PATH = PUBLISHER.topic_path(PROJECT_ID, TOPIC_NAME)
+    
+    # Generate a timestamp-based path if not provided
+    if bucket_path is None:
+        current_time = datetime.datetime.now()
+        timestamp = current_time.strftime("%Y-%m-%d_%H%M%S")
+        bucket_path = f"Downloads/{timestamp}"
+        print(f"Using timestamped bucket path: {bucket_path}")
     
     # Handle cleanup first - this can be run without other flags
     if cleanup:
@@ -389,7 +399,7 @@ def dicom_download_remote_start(csv_file = None, deploy = False, cleanup = False
     if deploy:
         # Build and push the image first, then deploy to Cloud Run
         build_and_push_image()
-        deploy_cloud_run()
+        deploy_cloud_run(bucket_name=bucket_name, bucket_path=bucket_path)
     elif CLOUD_RUN_URL is None:
         # Try to get the URL of an existing deployment first
         existing_url = get_existing_cloud_run_url()

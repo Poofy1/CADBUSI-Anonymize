@@ -261,6 +261,9 @@ def create_final_dataset(rad_df, path_df):
         final_df_us['ENDPOINT_ADDRESS'].notna() & 
         final_df_us['final_interpretation'].notna()
     ]
+    
+    # Remove rows with 'incomplete' in the Biopsy column
+    final_df_us = final_df_us[~(final_df_us['Biopsy'].str.contains('incomplete', case=False, na=False))]
 
     # Save the US-only filtered dataset
     os.makedirs(f'{env}/output', exist_ok=True)
