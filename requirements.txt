@@ -1,3 +1,4 @@
+numpy<2.0.0
 pydicom
 Pillow
 pandas
@@ -5,4 +6,6 @@ tqdm
 pyffx
 google-cloud-pubsub
 google-cloud-bigquery
+pylibjpeg>=2.0
+pylibjpeg-libjpeg>=2.1
 git+https://github.com/Poofy1/storage-adapter.git

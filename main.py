@@ -25,7 +25,7 @@ def parse_arguments():
     parser.add_argument('--cleanup', action='store_true', help='Clean up resources')
     
     # Anonymize arguments
-    parser.add_argument('--anon', action='store_true', help='Path to directory with DICOMs to anonymize')
+    parser.add_argument('--anon', type=str, help='Directory name for anonymized DICOM output')
     
     return parser.parse_args()
 
@@ -71,16 +71,15 @@ def main():
         
 
         BUCKET_NAME = "shared-aif-bucket-87d1"
-        BUCKET_PATH = "Downloads"
+        BUCKET_PATH = f"Downloads/{args.anon}"
         BUCKET_OUTPUT_NAME = BUCKET_NAME 
-        BUCKET_OUTPUT_PATH = "anon_dicoms"
+        BUCKET_OUTPUT_PATH = f"anon_dicoms/{args.anon}"
         deidentify_bucket_dicoms(
             bucket_name=BUCKET_NAME,
             bucket_path=BUCKET_PATH,
             output_bucket_name=BUCKET_OUTPUT_NAME,
             output_bucket_path=BUCKET_OUTPUT_PATH,
-            encryption_key=key,
-            save_png=False  # Set to True if you want to save PNGs as well
+            encryption_key=key
         )
     
     else:
