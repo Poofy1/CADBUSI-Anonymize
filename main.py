@@ -35,6 +35,7 @@ def main():
     
     
     dicom_query_file = f'{env}/output/endpoint_data.csv'
+    anon_file = f'{env}/output/anon_data.csv'
     
     
     # Handle query command
@@ -65,9 +66,8 @@ def main():
     elif args.anon:
 
         
-        output_file = f'{env}/encrypted_output.csv'
         key_output = f'{env}/encryption_key.pkl'
-        key = encrypt_ids(dicom_query_file, output_file, key_output)
+        key = encrypt_ids(dicom_query_file, anon_file, key_output)
         
 
         BUCKET_NAME = "shared-aif-bucket-87d1"

@@ -191,28 +191,42 @@ def extract_rad_pathology_txt(text):
 
 def check_for_biopsy(row):
     """
-    Check if 'BIOPSY' or 'BX' appears in either DESCRIPTION or TEST_DESCRIPTION (case insensitive)
+    Check for biopsy and ultrasound biopsy in DESCRIPTION or TEST_DESCRIPTION columns
     
     Args:
         row: The dataframe row with columns to check
         
     Returns:
-        'T' if biopsy is found in either column, 'F' if not
+        Tuple of (biopsy_found, ultrasound_biopsy_found) where each is 'T' if found, 'F' if not
     """
+    biopsy_found = 'F'
+    ultrasound_biopsy_found = 'F'
+    
     # Check DESCRIPTION column
     if 'DESCRIPTION' in row and not pd.isna(row['DESCRIPTION']):
         description_upper = row['DESCRIPTION'].upper()
+        
+        # Check for biopsy
         if 'BIOPSY' in description_upper or 'BX' in description_upper:
-            return 'T'
+            biopsy_found = 'T'
+            
+            # Check if it's an ultrasound biopsy in this column
+            if 'US' in description_upper or 'ULTRASOUND' in description_upper:
+                ultrasound_biopsy_found = 'T'
     
     # Check TEST_DESCRIPTION column
     if 'TEST_DESCRIPTION' in row and not pd.isna(row['TEST_DESCRIPTION']):
         test_description_upper = row['TEST_DESCRIPTION'].upper()
+        
+        # Check for biopsy
         if 'BIOPSY' in test_description_upper or 'BX' in test_description_upper:
-            return 'T'
+            biopsy_found = 'T'
+            
+            # Check if it's an ultrasound biopsy in this column
+            if 'US' in test_description_upper or 'ULTRASOUND' in test_description_upper:
+                ultrasound_biopsy_found = 'T'
     
-    # If not found in either column, return 'F'
-    return 'F'
+    return biopsy_found, ultrasound_biopsy_found
 
 def extract_rad_impression(text):
     if pd.isna(text):
@@ -277,8 +291,10 @@ def filter_rad_data(radiology_df):
     radiology_df['rad_impression'] = radiology_df['RADIOLOGY_REPORT'].apply(extract_rad_impression)
 
     # Check for biopsy in DESCRIPTION column
-    radiology_df['is_biopsy'] = radiology_df.apply(check_for_biopsy, axis=1)
-        
+    results = radiology_df.apply(check_for_biopsy, axis=1)
+    radiology_df['is_biopsy'] = results.str[0]
+    radiology_df['is_us_biopsy'] = results.str[1]
+            
     pd.set_option('display.max_colwidth', None)
     # Columns to drop
     columns_to_drop = ['RADIOLOGY_NARRATIVE', 'PROCEDURE_CODE_TEXT', 'SERVICE_RESULT_STATUS', 'RADIOLOGY_REPORT', 'RAD_SERVICE_RESULT_STATUS']

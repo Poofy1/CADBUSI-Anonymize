@@ -134,6 +134,10 @@ def encrypt_single_id(key, id_value):
             return str(id_value)
 
 def encrypt_ids(input_file=None, output_file=None, key_output=None):
+    # Ensure output folder exists
+    output_dir = os.path.dirname(output_file)
+    os.makedirs(output_dir, exist_ok=True)
+    
     # Check if the key file already exists and load it
     if os.path.exists(key_output):
         try:
@@ -162,10 +166,9 @@ def encrypt_ids(input_file=None, output_file=None, key_output=None):
         # Read header
         header = next(reader)
         
-        # Find the index of ENDPT_ADDRESS column if it exists
+        # Remove ENDPT_ADDRESS column if it exists
         try:
-            endpt_address_index = header.index("ENDPT_ADDRESS")
-            # Create a new header without the ENDPT_ADDRESS column
+            endpt_address_index = header.index("ENDPOINT_ADDRESS")
             new_header = [col for i, col in enumerate(header) if i != endpt_address_index]
             writer.writerow(new_header)
         except ValueError:
