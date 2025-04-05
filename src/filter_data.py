@@ -77,12 +77,18 @@ def check_malignant_from_biopsy(final_df):
 def check_from_next_diagnosis(final_df, days=240):
     """
     For 'US' rows with empty final_interpretation, check if the next chronological 
-    record with a path_interpretation within 'days' is 'BENIGN' or 'MALIGNANT', and set 
-    final_interpretation to 'BENIGN2' or 'MALIGNANT2' if the laterality matches between 
-    the US study and the pathology.
+    record with a path_interpretation within 'days' is 'BENIGN' or 'MALIGNANT'.
+    
+    For MALIGNANT cases: Set final_interpretation to 'MALIGNANT2' only if:
+    1. The laterality matches between the US study and the pathology
+    2. At least one record in the date range has 'is_us_biopsy' = 'T'
+    
+    For BENIGN cases: Set final_interpretation to 'BENIGN2' if:
+    1. The laterality matches between the US study and the pathology
     
     Special case: If Study_Laterality is 'BILATERAL', consider any future laterality,
-    and if any MALIGNANT is present within the time frame, set to 'MALIGNANT2'.
+    and if any MALIGNANT is present within the time frame, set to 'MALIGNANT2'
+    (still requiring at least one 'is_us_biopsy' = 'T').
     """
     for patient_id in tqdm(final_df['PATIENT_ID'].unique(), desc="Checking diagnosis from next record"):
         patient_mask = final_df['PATIENT_ID'] == patient_id
@@ -121,6 +127,13 @@ def check_from_next_diagnosis(final_df, days=240):
                     (patient_records['DATE'] <= future_date)
                 ]
                 
+                # Check if there's at least one record with 'is_us_biopsy' = 'T' in the date range
+                has_us_biopsy = any(
+                    (record['is_us_biopsy'] == 'T') 
+                    for _, record in future_records.iterrows() 
+                    if pd.notna(record.get('is_us_biopsy'))
+                )
+                
                 # Handle BILATERAL case differently
                 if current_laterality == 'BILATERAL':
                     # Check all future records with pathology interpretation
@@ -129,10 +142,10 @@ def check_from_next_diagnosis(final_df, days=240):
                         if pd.notna(future_row.get('path_interpretation')):
                             path_interpretations.append(future_row['path_interpretation'].upper())
                     
-                    # If any MALIGNANT is found, set to MALIGNANT2
-                    if 'MALIGNANT' in path_interpretations:
+                    # If any MALIGNANT is found and has_us_biopsy, set to MALIGNANT2
+                    if 'MALIGNANT' in path_interpretations and has_us_biopsy:
                         final_df.at[idx, 'final_interpretation'] = 'MALIGNANT2'
-                    # If no MALIGNANT but at least one BENIGN, set to BENIGN2
+                    # If no MALIGNANT but at least one BENIGN, set to BENIGN2 (no us_biopsy requirement)
                     elif 'BENIGN' in path_interpretations:
                         final_df.at[idx, 'final_interpretation'] = 'BENIGN2'
                 
@@ -149,10 +162,10 @@ def check_from_next_diagnosis(final_df, days=240):
                                 path_interp = future_row['path_interpretation'].upper()
                                 if path_interp == 'BENIGN':
                                     final_df.at[idx, 'final_interpretation'] = 'BENIGN2'
-                                elif path_interp == 'MALIGNANT':
+                                    break  # Stop after finding benign
+                                elif path_interp == 'MALIGNANT' and has_us_biopsy:
                                     final_df.at[idx, 'final_interpretation'] = 'MALIGNANT2'
-                            
-                                break  # Stop after finding the first record with a diagnosis
+                                    break  # Stop after finding malignant
     
     return final_df
 

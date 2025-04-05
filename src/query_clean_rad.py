@@ -211,7 +211,8 @@ def check_for_biopsy(row):
             biopsy_found = 'T'
             
             # Check if it's an ultrasound biopsy in this column
-            if 'US' in description_upper or 'ULTRASOUND' in description_upper:
+            if ('US' in description_upper or 'ULTRASOUND' in description_upper or 
+                re.search(r'\bUL\b', description_upper)):
                 ultrasound_biopsy_found = 'T'
     
     # Check TEST_DESCRIPTION column
@@ -223,10 +224,12 @@ def check_for_biopsy(row):
             biopsy_found = 'T'
             
             # Check if it's an ultrasound biopsy in this column
-            if 'US' in test_description_upper or 'ULTRASOUND' in test_description_upper:
+            if ('US' in test_description_upper or 'ULTRASOUND' in test_description_upper or 
+                re.search(r'\bUL\b', test_description_upper)):
                 ultrasound_biopsy_found = 'T'
     
     return biopsy_found, ultrasound_biopsy_found
+
 
 def extract_rad_impression(text):
     if pd.isna(text):
@@ -262,7 +265,31 @@ def extract_rad_impression(text):
         # If no next section header is found, return all text after "IMPRESSION:"
         return after_impression
     
+def remove_outside_records(radiology_df):
+    """
+    Remove rows where 'OUTSIDE' appears in the TEST_DESCRIPTION column
     
+    Args:
+        radiology_df: DataFrame containing radiology data
+        
+    Returns:
+        DataFrame with outside records removed
+    """
+    # Make a copy to avoid warnings about setting values on a slice
+    filtered_df = radiology_df.copy()
+    
+    # Check if the column exists
+    if 'TEST_DESCRIPTION' in filtered_df.columns:
+        # Create a mask for rows where 'OUTSIDE' is not in TEST_DESCRIPTION
+        # Handle NaN values with a boolean mask
+        mask = ~filtered_df['TEST_DESCRIPTION'].fillna('').str.upper().str.contains('OUTSIDE')
+        
+        # Apply the mask to filter out rows with 'OUTSIDE'
+        filtered_df = filtered_df[mask]
+    
+    return filtered_df
+
+
 def filter_rad_data(radiology_df):
     print("Parsing Radiology Data")
 
@@ -272,6 +299,9 @@ def filter_rad_data(radiology_df):
     
     # Rename columns
     radiology_df = radiology_df.rename(columns=rename_dict)
+    
+    # Remove outside records
+    radiology_df = remove_outside_records(radiology_df)
     
     # Apply the extraction functions and create new columns
     radiology_df['Density_Desc'] = radiology_df['RADIOLOGY_REPORT'].apply(extract_density)
