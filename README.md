@@ -4,7 +4,7 @@ This repository anonymizes and retrieves ultrasound image data from the Mayo Cli
 
 ## Setup
 
-- Within a Mayo Clinic AI Factory instance:
+- Create a Mayo Clinic AI Factory instance
 - Clone repository: `git clone https://github.com/Poofy1/CADBUSI-Anonymize.git`
 - Install requirements: `pip install -r requirements.txt`
 
@@ -33,7 +33,7 @@ The tool offers Cloud Run deployment for efficient DICOM downloads. Dicoms will 
 # Deploy the FastAPI service to Cloud Run and start dicom data download (REQUIRED)
 python main.py --deploy
 
-# Send a resend the download requests to the pre-deployed service (OPTIONAL)
+# Resend the download requests to the pre-deployed service (OPTIONAL)
 python main.py --rerun 
 
 # Clean up Cloud Run resources when finished (REQUIRED)
@@ -59,5 +59,5 @@ Example:
 - [CADBUSI-Anonymize](https://github.com/Poofy1/CADBUSI-Anonymize)
 - [CADBUSI-Database](https://github.com/Poofy1/CADBUSI-Database)
 - [CADBUSI-Training](https://github.com/Poofy1/CADBUSI-Training)
-![CASBUSI Pipeline](https://raw.githubusercontent.com/Poofy1/CADBUSI-Database/main/pipeline/CADBUSI-Pipeline.png)
+![CADBUSI Pipeline](https://raw.githubusercontent.com/Poofy1/CADBUSI-Database/main/pipeline/CADBUSI-Pipeline.png)
 
