@@ -11,6 +11,10 @@ import tempfile
 env = os.path.dirname(os.path.abspath(__file__))
 
 
+# Add parent directory to path
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import CONFIG
 
 def anon_callback(ds, element):
     names_to_remove = [
@@ -226,13 +230,13 @@ def process_single_blob(blob, client, output_bucket_name, output_bucket_path, en
         print(f"Error processing {blob.name}: {e}")
         return None
 
-def deidentify_bucket_dicoms(bucket_name, bucket_path, output_bucket_name, output_bucket_path, encryption_key, batch_size=100):
+def deidentify_bucket_dicoms(bucket_path, output_bucket_path, encryption_key, batch_size=100):
     """Process DICOM files from a GCP bucket and upload deidentified versions to output bucket"""
     # Initialize storage client
     client = storage.Client()
     
     # Get the bucket
-    bucket = client.bucket(bucket_name)
+    bucket = client.bucket(CONFIG["storage"]["bucket_name"])
     
     # Process in batches to avoid memory issues
     blobs_iterator = bucket.list_blobs(prefix=bucket_path)
@@ -254,7 +258,7 @@ def deidentify_bucket_dicoms(bucket_name, bucket_path, output_bucket_name, outpu
         
         # Process when batch is full
         if len(current_batch) >= batch_size:
-            success, fail = process_batch(current_batch, client, output_bucket_name, 
+            success, fail = process_batch(current_batch, client, CONFIG["storage"]["bucket_name"], 
                                          output_bucket_path, encryption_key)
             successful += success
             failed += fail
@@ -264,7 +268,7 @@ def deidentify_bucket_dicoms(bucket_name, bucket_path, output_bucket_name, outpu
     
     # Process any remaining files
     if current_batch:
-        success, fail = process_batch(current_batch, client, output_bucket_name, 
+        success, fail = process_batch(current_batch, client, CONFIG["storage"]["bucket_name"], 
                                      output_bucket_path, encryption_key)
         successful += success
         failed += fail

@@ -7,28 +7,15 @@ import tqdm
 import time
 from google.cloud import pubsub_v1
 
-# Environment configuration
-PROJECT_ID = "aif-usr-p-rad-brstai-87d1"
-REGION = "us-central1"
-TOPIC_NAME = "dicom-processing-topic"
-SUBSCRIPTION_NAME = "dicom-processing-subscription"
-MY_SERVICE_ACCOUNT = "M302453"
-SERVICE_ACCOUNT_IDENTITY = f"gsa6-va-prj-aif-p-{MY_SERVICE_ACCOUNT}-87d1@{PROJECT_ID}.iam.gserviceaccount.com"
-
-# Cloud Run configuration
-CLOUD_RUN_SERVICE = "pubsub-push-cloudrun"
-VERSION = "1.0"
-AR = f"shared-aif-artifact-registry-docker-87d1"
-AR_NAME = "pubsub-push-cloudrun"
-TARGET_TAG = f"us-central1-docker.pkg.dev/{PROJECT_ID}/{AR}/{AR_NAME}:{VERSION}"
-VPC_SHARED = "aif-env-sharedvpc-148f"
-VPC_NAME = "aif-vpc-p-ops-auto-01"
+# Add parent directory to path
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import CONFIG
 
 # Cloud Build configuration
 CONTENT_DIR = os.path.dirname(os.path.abspath(__file__))  # Directory of this script
 FASTAPI_DIR = os.path.join(CONTENT_DIR, "_fastapi")  # Assuming _fastapi directory exists
-GCS_LOG = f"gs://shared-aif-bucket-87d1/cloudbuild_log"
-GCS_STAGE = f"gs://shared-aif-bucket-87d1/cloudbuild_stage"
+TARGET_TAG = f"us-central1-docker.pkg.dev/{CONFIG["env"]["project_id"]}/{CONFIG["cloud_run"]["ar"]}/{CONFIG["cloud_run"]["ar_name"]}:{CONFIG["cloud_run"]["version"]}"
 
 # The URL will be obtained after deployment
 CLOUD_RUN_URL = None
@@ -72,8 +59,8 @@ def build_and_push_image():
     
     command = [
         "gcloud", "builds", "submit",
-        "--gcs-source-staging-dir", GCS_STAGE,
-        "--gcs-log-dir", GCS_LOG,
+        "--gcs-source-staging-dir", CONFIG["storage"]["gcs_stage"],
+        "--gcs-log-dir", CONFIG["storage"]["gcs_log"],
         "--tag", TARGET_TAG,
         ".",
     ]
@@ -106,7 +93,7 @@ def wait_for_cloud_run_ready(cr_name, max_retries=5, retry_interval=10):
         try:
             check_command = [
                 "gcloud", "run", "services", "describe", cr_name,
-                f"--region={REGION}", f"--project={PROJECT_ID}",
+                f"--region={CONFIG["env"]["region"]}", f"--project={CONFIG["env"]["project_id"]}",
                 "--format=value(status.url)"
             ]
             check_result = subprocess.run(check_command, check=True, capture_output=True, text=True)
@@ -125,14 +112,14 @@ def wait_for_cloud_run_ready(cr_name, max_retries=5, retry_interval=10):
     return None
 
 
-def deploy_cloud_run(bucket_name="shared-aif-bucket-87d1", bucket_path="Downloads"):
+def deploy_cloud_run(bucket_name=None, bucket_path=None):
     """Deploy the FastAPI application to Cloud Run."""
     global CLOUD_RUN_URL
     
     print("Deploying Cloud Run service...")
     
-    cr_name = AR_NAME.replace("_", "-")
-    vpc_connector = f"projects/{VPC_SHARED}/locations/{REGION}/connectors/{VPC_NAME}"
+    cr_name = CONFIG["cloud_run"]["ar_name"].replace("_", "-")
+    vpc_connector = f"projects/{CONFIG["cloud_run"]["vpc_shared"]}/locations/{CONFIG["env"]["region"]}/connectors/{CONFIG["cloud_run"]["vpc_name"]}"
     
     # Create environment variables string
     env_vars = f"BUCKET_NAME={bucket_name},BUCKET_PATH={bucket_path}"
@@ -144,10 +131,10 @@ def deploy_cloud_run(bucket_name="shared-aif-bucket-87d1", bucket_path="Download
         "--ingress=internal-and-cloud-load-balancing",
         "--no-allow-unauthenticated",
         "--port=5000",
-        f"--project={PROJECT_ID}",
+        f"--project={CONFIG["env"]["project_id"]}",
         "--quiet",
-        f"--region={REGION}",
-        f"--service-account={SERVICE_ACCOUNT_IDENTITY}",
+        f"--region={CONFIG["env"]["region"]}",
+        f"--service-account={CONFIG["env"]["service_account_identity"]}",
         f"--vpc-connector={vpc_connector}",
         "--vpc-egress=all-traffic",
         "--timeout=3000",
@@ -184,24 +171,24 @@ def check_pubsub_exists():
     # Check if topic exists
     try:
         check_topic_cmd = [
-            "gcloud", "pubsub", "topics", "describe", TOPIC_NAME,
-            f"--project={PROJECT_ID}", "--format=json"
+            "gcloud", "pubsub", "topics", "describe", CONFIG["env"]["topic_name"],
+            f"--project={CONFIG["env"]["project_id"]}", "--format=json"
         ]
         subprocess.run(check_topic_cmd, check=True, capture_output=True, text=True)
         topic_exists = True
-        print(f"Topic '{TOPIC_NAME}' already exists.")
+        print(f"Topic '{CONFIG["env"]["topic_name"]}' already exists.")
     except subprocess.CalledProcessError:
         pass
     
     # Check if subscription exists
     try:
         check_sub_cmd = [
-            "gcloud", "pubsub", "subscriptions", "describe", SUBSCRIPTION_NAME,
-            f"--project={PROJECT_ID}", "--format=json"
+            "gcloud", "pubsub", "subscriptions", "describe", CONFIG["env"]["subscription_name"],
+            f"--project={CONFIG["env"]["project_id"]}", "--format=json"
         ]
         subprocess.run(check_sub_cmd, check=True, capture_output=True, text=True)
         subscription_exists = True
-        print(f"Subscription '{SUBSCRIPTION_NAME}' already exists.")
+        print(f"Subscription '{CONFIG["env"]["subscription_name"]}' already exists.")
     except subprocess.CalledProcessError:
         pass
     
@@ -224,35 +211,35 @@ def setup_pubsub():
     topic_exists, subscription_exists = check_pubsub_exists()
     
     if not topic_exists:
-        print(f"Setting up Pub/Sub topic: {TOPIC_NAME}")
+        print(f"Setting up Pub/Sub topic: {CONFIG["env"]["topic_name"]}")
         try:
             # Create topic
             subprocess.run([
-                "gcloud", "pubsub", "topics", "create", TOPIC_NAME,
-                f"--project={PROJECT_ID}"
+                "gcloud", "pubsub", "topics", "create", CONFIG["env"]["topic_name"],
+                f"--project={CONFIG["env"]["project_id"]}"
             ], check=True)
-            print(f"Topic '{TOPIC_NAME}' created successfully.")
+            print(f"Topic '{CONFIG["env"]["topic_name"]}' created successfully.")
         except subprocess.CalledProcessError as e:
             if "already exists" in str(e):
-                print(f"Topic '{TOPIC_NAME}' already exists.")
+                print(f"Topic '{CONFIG["env"]["topic_name"]}' already exists.")
             else:
                 raise
     
     if not subscription_exists:
-        print(f"Setting up Pub/Sub subscription: {SUBSCRIPTION_NAME}")
+        print(f"Setting up Pub/Sub subscription: {CONFIG["env"]["subscription_name"]}")
         try:
             # Create subscription with push configuration
             subprocess.run([
-                "gcloud", "pubsub", "subscriptions", "create", SUBSCRIPTION_NAME,
-                f"--topic={TOPIC_NAME}",
+                "gcloud", "pubsub", "subscriptions", "create", CONFIG["env"]["subscription_name"],
+                f"--topic={CONFIG["env"]["topic_name"]}",
                 f"--push-endpoint={push_endpoint}",
-                f"--push-auth-service-account={SERVICE_ACCOUNT_IDENTITY}",
-                f"--project={PROJECT_ID}"
+                f"--push-auth-service-account={CONFIG["env"]["service_account_identity"]}",
+                f"--project={CONFIG["env"]["project_id"]}"
             ], check=True)
-            print(f"Subscription '{SUBSCRIPTION_NAME}' created successfully.")
+            print(f"Subscription '{CONFIG["env"]["subscription_name"]}' created successfully.")
         except subprocess.CalledProcessError as e:
             if "already exists" in str(e):
-                print(f"Subscription '{SUBSCRIPTION_NAME}' already exists.")
+                print(f"Subscription '{CONFIG["env"]["subscription_name"]}' already exists.")
             else:
                 raise
     
@@ -313,30 +300,30 @@ def cleanup_resources(delete_cloud_run=False):
     # Delete subscription
     try:
         subprocess.run([
-            "gcloud", "pubsub", "subscriptions", "delete", SUBSCRIPTION_NAME,
-            f"--project={PROJECT_ID}", "--quiet"
+            "gcloud", "pubsub", "subscriptions", "delete", CONFIG["env"]["subscription_name"],
+            f"--project={CONFIG["env"]["project_id"]}", "--quiet"
         ], check=True)
-        print(f"Subscription '{SUBSCRIPTION_NAME}' deleted.")
+        print(f"Subscription '{CONFIG["env"]["subscription_name"]}' deleted.")
     except subprocess.CalledProcessError as e:
-        print(f"Failed to delete subscription '{SUBSCRIPTION_NAME}': {e}")
+        print(f"Failed to delete subscription '{CONFIG["env"]["subscription_name"]}': {e}")
     
     # Delete topic
     try:
         subprocess.run([
-            "gcloud", "pubsub", "topics", "delete", TOPIC_NAME,
-            f"--project={PROJECT_ID}", "--quiet"
+            "gcloud", "pubsub", "topics", "delete", CONFIG["env"]["topic_name"],
+            f"--project={CONFIG["env"]["project_id"]}", "--quiet"
         ], check=True)
-        print(f"Topic '{TOPIC_NAME}' deleted.")
+        print(f"Topic '{CONFIG["env"]["topic_name"]}' deleted.")
     except subprocess.CalledProcessError as e:
-        print(f"Failed to delete topic '{TOPIC_NAME}': {e}")
+        print(f"Failed to delete topic '{CONFIG["env"]["topic_name"]}': {e}")
     
     # Delete Cloud Run service if requested
     if delete_cloud_run:
         try:
-            cr_name = AR_NAME.replace("_", "-")
+            cr_name = CONFIG["cloud_run"]["ar_name"].replace("_", "-")
             subprocess.run([
                 "gcloud", "run", "services", "delete", cr_name,
-                f"--region={REGION}", f"--project={PROJECT_ID}", "--quiet"
+                f"--region={CONFIG["env"]["region"]}", f"--project={CONFIG["env"]["project_id"]}", "--quiet"
             ], check=True)
             print(f"Cloud Run service '{cr_name}' deleted.")
         except subprocess.CalledProcessError as e:
@@ -344,7 +331,7 @@ def cleanup_resources(delete_cloud_run=False):
         
         # Also delete the container image
         try:
-            registry = f"us-central1-docker.pkg.dev/{PROJECT_ID}/{AR}/{AR_NAME}"
+            registry = f"us-central1-docker.pkg.dev/{CONFIG["env"]["project_id"]}/{CONFIG["cloud_run"]["ar"]}/{CONFIG["cloud_run"]["ar_name"]}"
             subprocess.run([
                 "gcloud", "artifacts", "docker", "images", "delete", 
                 registry, "--quiet", "--delete-tags"
@@ -356,11 +343,11 @@ def cleanup_resources(delete_cloud_run=False):
 
 def get_existing_cloud_run_url():
     """Get the URL of an existing Cloud Run service."""
-    cr_name = AR_NAME.replace("_", "-")
+    cr_name = CONFIG["cloud_run"]["ar_name"].replace("_", "-")
     try:
         command = [
             "gcloud", "run", "services", "describe", cr_name,
-            f"--region={REGION}", f"--project={PROJECT_ID}",
+            f"--region={CONFIG["env"]["region"]}", f"--project={CONFIG["env"]["project_id"]}",
             "--format=value(status.url)"
         ]
         result = subprocess.run(command, check=True, capture_output=True, text=True)
@@ -372,21 +359,19 @@ def get_existing_cloud_run_url():
         return None
 
 
-def dicom_download_remote_start(csv_file=None, deploy=False, cleanup=False, 
-                               bucket_name="shared-aif-bucket-87d1", 
-                               bucket_path=None):
+def dicom_download_remote_start(csv_file=None, deploy=False, cleanup=False, bucket_path=None):
     global CLOUD_RUN_URL
     global PUBLISHER
     global TOPIC_PATH
     
     PUBLISHER = pubsub_v1.PublisherClient()
-    TOPIC_PATH = PUBLISHER.topic_path(PROJECT_ID, TOPIC_NAME)
+    TOPIC_PATH = PUBLISHER.topic_path(CONFIG["env"]["project_id"], CONFIG["env"]["topic_name"])
     
     # Generate a timestamp-based path if not provided
     if bucket_path is None:
         current_time = datetime.datetime.now()
         timestamp = current_time.strftime("%Y-%m-%d_%H%M%S")
-        bucket_path = f"Downloads/{timestamp}"
+        bucket_path = f"{CONFIG["storage"]["download_path"]}/{timestamp}"
         print(f"Using timestamped bucket path: {bucket_path}")
     
     # Handle cleanup first - this can be run without other flags
@@ -402,7 +387,7 @@ def dicom_download_remote_start(csv_file=None, deploy=False, cleanup=False,
     if deploy:
         # Build and push the image first, then deploy to Cloud Run
         build_and_push_image()
-        deploy_cloud_run(bucket_name=bucket_name, bucket_path=bucket_path)
+        deploy_cloud_run(bucket_name=CONFIG["storage"]["bucket_name"], bucket_path=bucket_path)
     elif CLOUD_RUN_URL is None:
         # Try to get the URL of an existing deployment first
         existing_url = get_existing_cloud_run_url()
@@ -411,7 +396,7 @@ def dicom_download_remote_start(csv_file=None, deploy=False, cleanup=False,
             print(f"Using existing Cloud Run URL: {CLOUD_RUN_URL}")
         else:
             # Fall back to hardcoded URL format if service exists but we can't get the URL
-            CLOUD_RUN_URL = f"https://{CLOUD_RUN_SERVICE}-243026470979.{REGION}.run.app"
+            CLOUD_RUN_URL = f"https://{CONFIG["cloud_run"]["service"]}-243026470979.{CONFIG["env"]["region"]}.run.app"
             print(f"Using fallback Cloud Run URL: {CLOUD_RUN_URL}")
     
     if deploy:

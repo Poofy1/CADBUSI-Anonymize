@@ -5,6 +5,7 @@ from src.encrypt_keys import *
 from src.query_clean_path import filter_path_data
 from src.query_clean_rad import filter_rad_data
 from src.filter_data import create_final_dataset
+from config import CONFIG
 import argparse
 import os
 import sys
@@ -36,7 +37,7 @@ def main():
     
     dicom_query_file = f'{env}/output/endpoint_data.csv'
     anon_file = f'{env}/output/anon_data.csv'
-    
+    key_output = f'{env}/encryption_key.pkl'
     
     # Handle query command
     if args.query is not None:
@@ -64,20 +65,14 @@ def main():
         dicom_download_remote_start(dicom_query_file, args.deploy, args.cleanup)
         
     elif args.anon:
-
         
-        key_output = f'{env}/encryption_key.pkl'
         key = encrypt_ids(dicom_query_file, anon_file, key_output)
         
 
-        BUCKET_NAME = "shared-aif-bucket-87d1"
-        BUCKET_PATH = f"Downloads/{args.anon}"
-        BUCKET_OUTPUT_NAME = BUCKET_NAME 
-        BUCKET_OUTPUT_PATH = f"anon_dicoms/{args.anon}"
+        BUCKET_PATH = f"{CONFIG["storage"]["download_path"]}/{args.anon}"
+        BUCKET_OUTPUT_PATH = f"{CONFIG["storage"]["anonymized_path"]}/{args.anon}"
         deidentify_bucket_dicoms(
-            bucket_name=BUCKET_NAME,
             bucket_path=BUCKET_PATH,
-            output_bucket_name=BUCKET_OUTPUT_NAME,
             output_bucket_path=BUCKET_OUTPUT_PATH,
             encryption_key=key
         )
