@@ -69,8 +69,8 @@ def main():
         key = encrypt_ids(dicom_query_file, anon_file, key_output)
         
 
-        BUCKET_PATH = f"{CONFIG["storage"]["download_path"]}/{args.anon}"
-        BUCKET_OUTPUT_PATH = f"{CONFIG["storage"]["anonymized_path"]}/{args.anon}"
+        BUCKET_PATH = f'{CONFIG["storage"]["download_path"]}/{args.anon}'
+        BUCKET_OUTPUT_PATH = f'{CONFIG["storage"]["anonymized_path"]}/{args.anon}'
         deidentify_bucket_dicoms(
             bucket_path=BUCKET_PATH,
             output_bucket_path=BUCKET_OUTPUT_PATH,
