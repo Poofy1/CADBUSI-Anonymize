@@ -7,6 +7,8 @@ This repository anonymizes and retrieves ultrasound image data from the Mayo Cli
 - Create a Mayo Clinic AI Factory instance
 - Clone repository: `git clone https://github.com/Poofy1/CADBUSI-Anonymize.git`
 - Install requirements: `pip install -r requirements.txt`
+- Configure: `config.py`
+- Obtain certificate `./src/_fastapi/CertEmulationCA.crt`
 
 ## Usage
 
