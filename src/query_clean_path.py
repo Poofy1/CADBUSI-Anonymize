@@ -342,15 +342,11 @@ def filter_path_data(pathology_df):
     # Extract final diagnosis from SPECIMEN_NOTE
     pathology_df['final_diag'] = pathology_df['SPECIMEN_NOTE'].apply(extract_final_diagnosis)
     
-    # Extract laterality from PART_DESCRIPTION and other fields
-    pathology_df['Pathology_Laterality'] = pathology_df.apply(determine_laterality, axis=1)
-    
     # Split bilateral cases into separate rows
     expanded_df = split_bilateral_cases(pathology_df)
     
     # Re-determine laterality after splitting (for rows that didn't have it set during splitting)
-    mask = expanded_df['Pathology_Laterality'].isna()
-    expanded_df.loc[mask, 'Pathology_Laterality'] = expanded_df[mask].apply(determine_laterality, axis=1)
+    expanded_df['Pathology_Laterality'] = expanded_df.apply(determine_laterality, axis=1)
     
     # Apply diagnosis classification
     expanded_df['path_interpretation'] = expanded_df['final_diag'].apply(categorize_pathology)
