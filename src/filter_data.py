@@ -56,20 +56,20 @@ def check_benign_based_on_followup(final_df):
 
 def check_malignant_from_biopsy(final_df):
     """
-    Check for malignancy indicators in biopsy results for cases without interpretation,
-    but only for rows where MODALITY is 'US'.
+    Check for malignancy indicators by marking rows as MALIGNANT1 
+    if BI-RADS = 6 and MODALITY is 'US', for cases without interpretation.
     """
-    trigger_words = ['malignant', 'cancer', 'carcinoma', 'intermediate', 'malignancy']
+    us_birads6_rows = final_df[
+        (pd.notna(final_df.get('MODALITY'))) & 
+        (final_df['MODALITY'] == 'US') & 
+        (pd.notna(final_df.get('BI-RADS'))) & 
+        (final_df['BI-RADS'] == '6')
+    ].index
     
-    us_rows = final_df[(pd.notna(final_df.get('MODALITY'))) & (final_df['MODALITY'] == 'US')].index
-    
-    for idx in tqdm(us_rows, desc="Checking malignancy from biopsy"):
+    for idx in tqdm(us_birads6_rows, desc="Checking BI-RADS 6 cases"):
         row = final_df.loc[idx]
         if pd.isna(row['final_interpretation']) or row['final_interpretation'] == '':
-            if 'Biopsy' in row and pd.notna(row['Biopsy']):
-                biopsy_text = str(row['Biopsy']).lower()
-                if any(word in biopsy_text for word in trigger_words):
-                    final_df.at[idx, 'final_interpretation'] = 'MALIGNANT1'
+            final_df.at[idx, 'final_interpretation'] = 'MALIGNANT1'
     
     return final_df
 

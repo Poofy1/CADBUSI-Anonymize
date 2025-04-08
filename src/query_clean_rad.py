@@ -207,7 +207,7 @@ def check_for_biopsy(row):
         description_upper = row['DESCRIPTION'].upper()
         
         # Check for biopsy
-        if 'BIOPSY' in description_upper or 'BX' in description_upper:
+        if 'BIOPSY' in description_upper or 'BX' in description_upper or 'ASP' in description_upper:
             biopsy_found = 'T'
             
             # Check if it's an ultrasound biopsy in this column
@@ -220,7 +220,7 @@ def check_for_biopsy(row):
         test_description_upper = row['TEST_DESCRIPTION'].upper()
         
         # Check for biopsy
-        if 'BIOPSY' in test_description_upper or 'BX' in test_description_upper:
+        if 'BIOPSY' in test_description_upper or 'BX' in test_description_upper or 'ASP' in test_description_upper:
             biopsy_found = 'T'
             
             # Check if it's an ultrasound biopsy in this column
