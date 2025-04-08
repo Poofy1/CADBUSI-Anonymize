@@ -56,6 +56,8 @@ Example:
 
 `python main.py --anon "2025-04-01_221610"`
 
+## Query Diagram `--query [optional: limit=N]`
+![CASBUSI Query](/demo/CADBUSI_Query.png)
 
 ## Data Pipeline
 - [CADBUSI-Anonymize](https://github.com/Poofy1/CADBUSI-Anonymize)
