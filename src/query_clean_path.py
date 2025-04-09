@@ -19,19 +19,17 @@ def determine_laterality(row):
         right_mentions = 0
         left_mentions = 0
         
-        # Handle multi-part reports (A, B, C sections)
-        parts = re.split(r'(?:PART |^)([A-Z])\.\s+', text)
+        # Split by lettered parts
+        parts = re.split(r'(?:^|\s)([A-Z])[\.\)]\s+', text)
         
         # If no parts found, check the whole text
         if len(parts) <= 1:
             if "RIGHT" in text and "LEFT" in text:
-                return "BILATERAL"
+                return None
             elif "RIGHT" in text and "BILATERAL" not in text:
                 return "RIGHT"
             elif "LEFT" in text and "BILATERAL" not in text:
                 return "LEFT"
-            elif "BILATERAL" in text:
-                return "BILATERAL"
         else:
             # Process each part separately
             for i in range(1, len(parts), 2):
@@ -44,15 +42,11 @@ def determine_laterality(row):
             
             # Determine overall laterality based on part counts
             if right_mentions > 0 and left_mentions > 0:
-                return "BILATERAL"
+                return None
             elif right_mentions > 0:
                 return "RIGHT"
             elif left_mentions > 0:
                 return "LEFT"
-        
-        # Check for explicit BILATERAL indicator if no parts found
-        if "BILATERAL" in text:
-            return "BILATERAL"
         
         # If no laterality is found
         return None
@@ -79,13 +73,14 @@ def determine_laterality(row):
     return None
 
 
-def split_bilateral_cases(pathology_df):
+def split_lesions(pathology_df):
     """
-    Split bilateral pathology cases into separate rows for left and right sides.
+    Split pathology cases into separate rows by lettered parts,
+    with laterality determination for each part.
     """
-    print("Splitting bilateral cases into separate rows...")
+    print("Splitting cases by lettered parts with laterality...")
     expanded_rows = []
-    bilateral_count = 0
+    part_count = 0
     
     for idx, row in pathology_df.iterrows():
         if pd.isna(row['final_diag']):
@@ -95,50 +90,55 @@ def split_bilateral_cases(pathology_df):
         
         text = str(row['final_diag']).upper()
         
-        # Check if this is a multi-part report with both LEFT and RIGHT
-        if "LEFT" in text and "RIGHT" in text:
-            bilateral_count += 1
-            
-            # Split the text into parts
-            parts = re.split(r'([A-Z])\.\s+', text)
-            
-            left_parts = []
-            right_parts = []
-            
-            # Separate parts by laterality
-            for i in range(1, len(parts), 2):
-                if i+1 < len(parts):
-                    part_letter = parts[i]
-                    part_text = parts[i+1]
+        # Split by lettered parts
+        parts = re.split(r'(?:^|\s)([A-Z])[\.\)]\s+', text)
+        
+        # Process parts (every odd index is a letter, followed by content)
+        valid_parts_found = False
+        i = 1
+        while i < len(parts):
+            if i+1 < len(parts):
+                part_letter = parts[i]
+                part_text = parts[i+1].strip()
+                
+                # Only include parts that have actual content
+                if part_text:
+                    valid_parts_found = True
+                    part_count += 1
+                    part_row = row.to_dict()
+                    part_row['final_diag'] = f"{part_letter}. {part_text}"
                     
+                    # Determine laterality for this part
                     if "LEFT" in part_text:
-                        left_parts.append(f"{part_letter}. {part_text}")
+                        part_row['Pathology_Laterality'] = "LEFT"
                     elif "RIGHT" in part_text:
-                        right_parts.append(f"{part_letter}. {part_text}")
+                        part_row['Pathology_Laterality'] = "RIGHT"
+                    else:
+                        part_row['Pathology_Laterality'] = "UNSPECIFIED"
+                        
+                    part_row['Pathology_Part'] = part_letter
+                    expanded_rows.append(part_row)
+            i += 2
+        
+        # If no valid parts were found, keep the original row with laterality
+        if not valid_parts_found:
+            original_row = row.to_dict()
             
-            # Create a row for the LEFT side if parts exist
-            if left_parts:
-                left_row = row.to_dict()
-                left_row['final_diag'] = " ".join(left_parts)
-                left_row['Pathology_Laterality'] = "LEFT"
-                expanded_rows.append(left_row)
-            
-            # Create a row for the RIGHT side if parts exist
-            if right_parts:
-                right_row = row.to_dict()
-                right_row['final_diag'] = " ".join(right_parts)
-                right_row['Pathology_Laterality'] = "RIGHT"
-                expanded_rows.append(right_row)
-        else:
-            # Just add the original row for non-bilateral cases
-            expanded_rows.append(row.to_dict())
+            # Check for laterality in the full text
+            if "LEFT" in text:
+                original_row['Pathology_Laterality'] = "LEFT"
+            elif "RIGHT" in text:
+                original_row['Pathology_Laterality'] = "RIGHT"
+            else:
+                original_row['Pathology_Laterality'] = "UNSPECIFIED"
+                
+            expanded_rows.append(original_row)
     
     # Create a new dataframe from the expanded rows
     expanded_df = pd.DataFrame(expanded_rows)
     
-    print(f"Split {bilateral_count} bilateral cases into separate rows.")
+    print(f"Split {part_count} parts into separate rows.")
     return expanded_df
-
 
 def extract_final_diagnosis(text):
     if pd.isna(text):
@@ -155,8 +155,12 @@ def extract_final_diagnosis(text):
     # Get the content after the match
     after_diagnosis = text[start_pos:].strip()
     
-    # Use regex to find the next section header (uppercase word followed by a colon)
-    match = re.search(r'\s([A-Z]{4,}:)', after_diagnosis)
+    # Look for either pattern: 
+    # 1. Uppercase words (4+ letters) followed by colon
+    # 2. Uppercase words (4+ letters) followed by space and dash
+    next_section_pattern = r'\s+([A-Z]{4,}:|\b[A-Z][A-Z\s]{3,}\s+-)'
+    
+    match = re.search(next_section_pattern, after_diagnosis)
     
     if match:
         # Get position of the next section header
@@ -188,152 +192,79 @@ def categorize_pathology(text):
     if pd.isna(text):
         return "UNKNOWN"
     
+    # Convert to uppercase for consistent matching
     text = str(text).upper()
     
-    # Important: First check for explicit malignant diagnoses
-    explicit_malignant_patterns = [
-        r"INVASIVE\s+DUCTAL\s+CARCINOMA", 
-        r"DUCTAL\s+CARCINOMA\s+IN\s+SITU", 
-        r"DCIS",
-        r"METASTATIC\s+CARCINOMA",
-        r"POSITIVE\s+FOR\s+CARCINOMA",
-        r"INVASIVE\s+CARCINOMA"
-    ]
-    
-    for pattern in explicit_malignant_patterns:
-        if re.search(pattern, text):
-            return "MALIGNANT"
-    
-    # Check for explicit negation patterns - expanded to catch truncated words
+    # 1. Check for explicit negations first - highest priority
     negation_patterns = [
-        r"NEGATIVE\s+FOR\s+MALIGNAN[CT]", 
-        r"NO\s+EVIDENCE\s+OF\s+MALIGNAN[CT]",
-        r"NEGATIVE\s+FOR\s+ATYPIA\s+AND\s+CARCINOMA",
-        r"NO\s+EVIDENCE\s+OF\s+ATYPIA\s+OR\s+MALIGNAN[CT]",
-        r"NO\s+EVIDENCE\s+OF\s+ATYPIA\s+AND\s+MALIGNAN[CT]",
-        r"THERE\s+IS\s+NO\s+EVIDENCE\s+OF\s+ATYPIA\s+OR\s+MALIGNAN[CT]",
-        r"LYMPH\s+NODES?\s+NEGATIVE\s+FOR\s+MALIGNAN[CT]",
-        r"NEGATIVE\s+FOR\s+TUM[O|OR]",
-        r"NO\s+MALIGNANCY\s+PRESENT"
+        r"NEGATIVE\s+FOR\s+(MALIGNAN[CT]|CARCINOMA|INVASIVE|DCIS|ATYPIA|TUMOR|NEOPLASM|METASTATIC)",
+        r"NO\s+EVIDENCE\s+OF\s+(MALIGNAN[CT]|CARCINOMA|INVASIVE|DCIS|TUMOR|NEOPLASM|ATYPIA)",
+        r"ABSENCE\s+OF\s+(MALIGNAN[CT]|CARCINOMA|INVASIVE|DCIS|TUMOR|NEOPLASM)",
+        r"FREE\s+OF\s+(MALIGNAN[CT]|CARCINOMA|INVASIVE|TUMOR|NEOPLASM)",
+        r"NO\s+(MALIGNAN[CT]|CARCINOMA|INVASIVE|TUMOR|NEOPLASM)\s+SEEN",
+        r"NEGATIVE\s+LYMPH",
+        r"NO\s+MALIGNANCY\s+PRESENT",
     ]
     
-    # Only consider a negation pattern if it refers to the entire sample
     for pattern in negation_patterns:
         if re.search(pattern, text):
             return "BENIGN"
     
-    # Malignant indicators - clearly cancer/malignancy
-    malignant_terms = [
-        r"MALIGNANT", r"CARCINOMA", r"CANCER", r"INVASIVE", r"DCIS",
-        r"DUCTAL\s+CARCINOMA", r"LOBULAR\s+CARCINOMA", r"ADENOCARCINOMA", 
-        r"METASTATIC", r"METASTASIS", r"POSITIVE\s+FOR\s+MALIGNANCY", 
-        r"HIGH\s+GRADE\s+DYSPLASIA", r"LYMPHOVASCULAR\s+INVASION"
+    # 2. Check for explicit malignant findings
+    malignant_patterns = [
+        r"INVASIVE\s+DUCTAL\s+CARCINOMA",
+        r"DUCTAL\s+CARCINOMA\s+IN\s+SITU",
+        r"\bDCIS\b",
+        r"METASTATIC\s+CARCINOMA",
+        r"INVASIVE\s+CARCINOMA",
+        r"\bCARCINOMA\b",
+        r"\bMALIGNAN[CT]\b",
+        r"\bTUMOR\b(?!\s+NEGATIVE)",
+        r"METASTATIC",
     ]
     
-    # Check if any malignant term is present (not negated)
-    for term in malignant_terms:
-        if re.search(term, text):
-            term_match = re.search(term, text)
-            if term_match:
-                term_pos = term_match.start()
-                start_window = max(0, term_pos - 20)
-                context = text[start_window:term_pos + len(term_match.group()) + 5]
-                if not re.search(r"NO\s+" + term, context) and not re.search(r"NEGATIVE\s+FOR\s+" + term, context):
-                    return "MALIGNANT"
-    
-    # Check for implant/expander-related cases specifically
-    implant_patterns = [
-        r"EXPLANTED\s+(?:LEFT|RIGHT)?\s*BREAST\s+(?:TISSUE\s+)?(?:IMPLANT|EXPANDER)",
-        r"BREAST\s+IMPLANT\s+CAPSUL",
-        r"CONSISTENT\s+WITH\s+BREAST\s+IMPLANT\s+CAPSUL",
-        r"GROSS\s+ONLY[,\s]*AS\s+DESCRIBE",
-        r"BREAST\s+IMPLANT\s+IDENTIFIE[D]*",
-        r"BREAST\s+CAPSULE[,\s].*CAPSULECTOMY",
-        r"FIBROUS\s+CAPSULE\s+WITH\s+(?:FOREIGN\s+BODY[^\w]+TYPE)?\s*GRANULOMATOUS\s+REACTIO[N]*"
-    ]
-    
-    implant_match = False
-    for pattern in implant_patterns:
+    for pattern in malignant_patterns:
         if re.search(pattern, text):
-            implant_match = True
-            break
+            # Make sure it's not negated
+            match = re.search(pattern, text)
+            start_pos = max(0, match.start() - 20)
+            context = text[start_pos:match.start()]
+            if not re.search(r"NEGATIVE\s+FOR|NO\s+EVIDENCE\s+OF|FREE\s+OF", context):
+                return "MALIGNANT"
     
-    # Enhanced benign indicators - additional terms for common benign findings
-    benign_terms = [
-        # Original benign terms with flexible matching
-        r"FIBRO(?:CYSTIC|ADENO(?:M|MA))", r"INTRADUCTAL\s+PAPILLOMA", r"FIBROMATOSIS",
-        r"NORMAL\s+BREAST\s+TISSUE", r"REACTIVE\s+CHANGES", r"FAT\s+NECROSIS", 
-        r"USUAL\s+DUCTAL\s+HYPERPLAS[I|IA]", r"UDH", r"PSEUDOANGIOMATOUS\s+STROMAL\s+HYPERPLAS[I|IA]", 
-        r"PASH", r"COLUMNAR\s+CELL\s+CHANGES", r"NONPROLIFERATIVE\s+FIBROCYSTIC\s+CHANGE",
-        r"NODULAR\s+ADENOSIS", r"APOCRINE\s+METAPLAS[I|IA]", r"USUAL\s+TYPE\s+HYPERPLAS[I|IA]",
-        r"ADENOS[I|IS]",
-        r"FIBROADIPOSE\s+TISSUE(?:\s+WITH\s+SCARRING)?",
-        r"SKIN\s+WITH\s+SCARRING",
-        r"(?:DENSE)?\s*FIBROUS\s+TISSUE",
-        r"FOAMY\s+HISTIOCYTES",
-        r"GIANT\s+CELLS",
-        r"REDUCTION\s+MAMMOPLASTY",
+    # 3. Check for explicit benign indicators and common benign patterns
+    benign_patterns = [
+        r"\bBENIGN\b",
+        r"FIBROCYSTIC",
+        r"FIBROADENOMA",
+        r"NORMAL\s+BREAST\s+TISSUE",
+        r"INTRADUCTAL\s+PAPILLOMA",
+        r"DUCT\s+ECTASIA",
+        r"PERIDUCTAL\s+FIBROSIS",
+        r"SCLEROSING\s+ADENOSIS",
+        r"APOCRINE\s+METAPLASIA",
+        r"USUAL\s+DUCTAL\s+HYPERPLASIA",
+        r"ATYPICAL\s+DUCTAL\s+HYPERPLASIA", # High risk
+        r"COLUMNAR\s+CELL\s+CHANGE",
+        r"RADIAL\s+SCAR",
         r"FIBROSIS",
-        
-        # New terms for inflammatory and benign conditions
-        r"CHRONIC\s+(?:AND\s+)?GRANULOMATOUS\s+INFLAMMATION",
-        r"FOREIGN\s+BODY\s+GIANT\s+CELL\s+REACTION",
-        r"CYSTICALLY\s+DILATED\s+SQUAMOUS\s+LINED\s+DUCT",
-        r"GRANULOMATOUS\s+INFLAMMATION",
-        r"FOREIGN\s+BODY[^\w]+TYPE\s+GRANULOMATOUS\s+REACTIO[N]*",
-        
-        # Biopsy site changes and calcifications
-        r"CHANGES\s+COMPATIBLE\s+WITH\s+PRIOR\s+PROCEDURE\s+SITE",
+        r"BREAST\s+IMPLANT",
+        r"RUPTURED\s+IMPLANT",
+        r"IMPLANT\s+CAPSULE",
+        r"GROSS\s+ONLY\s+AS\s+DESCRIBED",
+        r"FAT\s+NECROSIS",
+        r"UNREMARKABLE",
+        r"ESTROGEN",
         r"DYSTROPHIC\s+CALCIFICATIONS?",
-        r"BIOPSY\s+SITE\s+CHANGES",
-        r"PRIOR\s+BIOPSY\s+SITE",
-        r"POST[\s\-]PROCEDURAL\s+CHANGES",
-        
-        # Uncertain/non-diagnostic findings (treat as benign if no clear malignancy)
-        r"PAPILLARY\s+LESION\s+CAN\s+NOT\s+BE\s+EXCLUDED",
-        r"SUGGESTING\s+PAPILLARY\s+LESION",
-        r"CLINICAL\s+AND\s+RADIOLOGIC\s+CORRELATION\s+IS\s+RECOMMENDED",
-        r"DOES\s+NOT\s+REVEAL\s+A\s+SPECIFIC\s+LESION",
-        r"SPARSE\s+BREAST\s+TISSUE",
-        r"SUGGESTING\s+POSSIBLE\s+DISRUPTION",
-        
-        # Former "indeterminate" findings now classified as benign
-        r"ATYPICAL", r"ATYPIA", r"ADH", r"ATYPICAL\s+DUCTAL\s+HYPERPLAS[I|IA]", 
-        r"ALH", r"ATYPICAL\s+LOBULAR\s+HYPERPLAS[I|IA]"
+        r"NEGATIVE",
+        r"SCAR",
+        r"FIBROTIC ",
     ]
     
-    # Check for benign indicators
-    for term in benign_terms:
-        if re.search(term, text):
+    for pattern in benign_patterns:
+        if re.search(pattern, text):
             return "BENIGN"
     
-    # If we matched an implant pattern but no specific benign or malignant findings,
-    # classify as BENIGN since these are generally non-pathological specimens
-    if implant_match:
-        return "BENIGN"
-    
-    # Additional benign indicators or explicit "BENIGN" statement
-    if "BENIGN" in text:
-        return "BENIGN"
-    
-    # Some potentially concerning findings that aren't clearly benign 
-    # but also not malignant - classifying as BENIGN
-    less_concerning_terms = [
-        r"SUSPICIOUS", r"INDETERMINATE", r"UNCERTAIN",
-        r"CANNOT\s+RULE\s+OUT", r"CAN\s+NOT\s+BE\s+EXCLUDED"
-    ]
-    
-    for term in less_concerning_terms:
-        pattern = term
-        if re.search(pattern, text) and not re.search(r"NEGATIVE\s+FOR\s+" + pattern, text) and not re.search(r"NO\s+EVIDENCE\s+OF\s+" + pattern, text):
-            return "BENIGN"
-    
-    # Default to BENIGN for mastectomy, excision, biopsy, capsulectomy, and removal specimens 
-    # without malignant findings - this is a conservative assumption
-    if re.search(r"(MASTECTOMY|NIPPLE-SPARING\s+MASTECTOMY|EXCISION|BIOPSY|CAPSULECTOMY|REMOVAL)", text) and not re.search(r"MALIGNAN[CT]|CARCINOMA|CANCER", text):
-        return "BENIGN"
-    
-    # If no clear indicators found
     return "UNKNOWN"
 
 def filter_path_data(pathology_df):
@@ -342,8 +273,8 @@ def filter_path_data(pathology_df):
     # Extract final diagnosis from SPECIMEN_NOTE
     pathology_df['final_diag'] = pathology_df['SPECIMEN_NOTE'].apply(extract_final_diagnosis)
     
-    # Split bilateral cases into separate rows
-    expanded_df = split_bilateral_cases(pathology_df)
+    # Split cases into separate rows via lesions
+    expanded_df = split_lesions(pathology_df)
     
     # Re-determine laterality after splitting (for rows that didn't have it set during splitting)
     expanded_df['Pathology_Laterality'] = expanded_df.apply(determine_laterality, axis=1)
