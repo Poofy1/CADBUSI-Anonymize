@@ -64,11 +64,11 @@ def extract_birads_and_description(row):
     # If no result from RADIOLOGY_REPORT, try RADIOLOGY_NARRATIVE
     if 'RADIOLOGY_NARRATIVE' in row and not pd.isna(row['RADIOLOGY_NARRATIVE']):
         text = row['RADIOLOGY_NARRATIVE']
-        return extract_birads_from_text(text)
+        return extract_birads_from_text(text, True)
     
     return None, None
 
-def extract_birads_from_text(text):
+def extract_birads_from_text(text, test = False):
     if pd.isna(text):
         return None, None
     
@@ -81,29 +81,43 @@ def extract_birads_from_text(text):
     # Create pattern to find any of the keywords
     end_pattern = r'(?i)(' + '|'.join(end_keywords) + r')[^\w]'
     
-    # Try multiple patterns to capture BI-RADS values and their descriptions
     patterns = [
-        r'BI-RADS\s*ASSESSMENT:\s*(\d+[a-z]?):\s*([^\.]+)\.?',
-        r'BI-RADS:\s*(\d+[a-z]?):\s*([^\.]+)',
-        r'ASSESSMENT:\s*BI-RADS:\s*(\d+[a-z]?):\s*([^\.]+)',
-        r'BI-RADS\s*(\d+[a-z]?)[:\s]+([^\.]+)',
-        r'BI-RADS\s*Category\s*(\d+[a-z]?):\s*([^\.]+)',
-        r'OVERALL\s*STUDY\s*BIRADS:\s*(\d+[a-z]?)\s+([^\.]+)',
-        r'BI-RADS\s*(\d+[a-z]?),\s*([^,\.]+)',
-        r'IMPRESSION:\s*BI-RADS\s*(\d+[a-z]?),\s*([^,\.]+)',
-        r'(?:IMPRESSION:|ASSESSMENT:)?\s*(?:BI-?RADS)\s*(\d+[a-z]?)\s*-\s*([^\.]+)',
-        r'BI-RADS\s*Category\s*(\d+[A-Za-z]?):\s*([^\.]+)',
+        # Ultrasound-specific patterns with description
+        r'(?:Ultrasound|US)\s+BI-?RADS:\s*\(?(\d+[a-z]?)\)?\s+([^\s\.]+)',
+        
+        # General BI-RADS patterns with descriptions - Combined several patterns
+        r'(?:BI-?RADS\s*(?:ASSESSMENT|Category|code|Final\s+Assessment)?|ASSESSMENT:\s*BI-?RADS|OVERALL\s*STUDY\s*BI-?RADS)(?:\s*CATEGORY)?[:]?\s*\(?(\d+[a-z]?)\)?(?:[:]\s*|\s+|,\s*|\s*-\s*)([^\.]+)(?:\.)?',
+        
+        # Special case for impression
+        r'(?:IMPRESSION:|ASSESSMENT:)?\s*(?:BI-?RADS)\s*\(?(\d+[a-z]?)\)?\s*(?:-|,)\s*([^\.]+)',
+        
+        # Special case for description before number
+        r'BI-?RADS:\s*([^(]+)\s*\((\d+[a-z]?)\)',
+        
+        # New pattern for Final Assessment without BI-RADS explicitly mentioned
+        r'Final\s+Assessment:\s*\(?(\d+[a-z]?)\)?\s*(?:-|,)?\s*([^\.]+)',
+        
+        # Pattern for BI-RADS ATLAS category
+        r'BI-?RADS(?:®\s*ATLAS)?\s*category\s*\(?overall\)?:\s*\(?(\d+[a-z]?)\)?\s+([^\.]+)',
+        
+        # Pattern for BI-RADS® Category with registered trademark
+        r'BI-?RADS®\s*Category:\s*(\d+[a-z]?)\s*-\s*([^\.]+)',
     ]
-    
+
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match and len(match.groups()) >= 2:
-            birads_category = match.group(1)
+            # Special case for the "description before number" pattern
+            if pattern == r'BI-?RADS:\s*([^(]+)\s*\((\d+[a-z]?)\)':
+                birads_category = match.group(2)
+                full_description = match.group(1).strip()
+            else:
+                birads_category = match.group(1)
+                full_description = match.group(2).strip()
+            
             # Convert any letters in the BI-RADS category to uppercase
             if birads_category:
                 birads_category = ''.join([c.upper() if c.isalpha() else c for c in birads_category])
-            
-            full_description = match.group(2).strip()
             
             # Truncate description at any of the specified keywords
             keyword_match = re.search(end_pattern, full_description + ' ')
@@ -116,13 +130,12 @@ def extract_birads_from_text(text):
                 
             return birads_category, description
     
-    # Rest of the function remains the same
+    # Simpler patterns without description capturing
     for pattern in [
-        r'BI-RADS\s*(\d+[A-Za-z]?)', 
-        r'BIRADS\s*(\d+[A-Za-z]?)',
-        r'BI-RADS\s*Category\s*(\d+[A-Za-z]?)',
-        r'OVERALL\s*STUDY\s*BIRADS:\s*(\d+[A-Za-z]?)'
-    ]: 
+        r'(?:Ultrasound|US)\s+BI-?RADS:\s*\(?(\d+[a-z]?)\)?',
+        r'(?:BI-?RADS|BIRADS)(?:\s*(?:Category|CATEGORY|code))?(?::|:?\s+CATEGORY)?\s*\(?(\d+[A-Za-z]?)\)?',
+        r'OVERALL\s*STUDY\s*BI-?RADS:\s*\(?(\d+[A-Za-z]?)\)?',
+    ]:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             birads_category = match.group(1)
@@ -135,6 +148,12 @@ def extract_birads_from_text(text):
     pathology_match = re.search(r'ASSESSMENT:\s*\d+:\s*(Pathology\s+\w+)', text, re.IGNORECASE)
     if pathology_match:
         return None, pathology_match.group(1).strip()
+    
+    
+    birads_exists = re.search(r'BI-?RADS|BIRADS', text, re.IGNORECASE)
+    if birads_exists and test:
+        print("BI-RADS mentioned but category not extracted")
+        print(text)
     
     return None, None
 
