@@ -133,6 +133,37 @@ def encrypt_single_id(key, id_value):
             # Return original for non-numeric values
             return str(id_value)
 
+
+
+def anonymize_date(date_str):
+    """
+    Anonymize a date by removing the day information, keeping only year and month.
+    Sets the day to '01' for all dates.
+    
+    Args:
+        date_str (str): Date string in formats like '2019-11-06 00:00:00' or '1932-01-08'
+        
+    Returns:
+        str: Anonymized date in 'YYYY-MM-01' format
+    """
+    # Handle empty or None values
+    if not date_str or date_str.lower() == 'none':
+        return date_str
+    
+    # Split by space to handle datetime format with time component
+    parts = date_str.split(' ')
+    date_part = parts[0]
+    
+    # Split the date by hyphens
+    try:
+        year, month, day = date_part.split('-')
+        # Return the date with day set to '01'
+        return f"{year}-{month}-01"
+    except ValueError:
+        # Return original if it doesn't match expected format
+        print(f"Warning: Couldn't anonymize date '{date_str}' - unexpected format")
+        return date_str
+
 def encrypt_ids(input_file=None, output_file=None, key_output=None):
     # Ensure output folder exists
     output_dir = os.path.dirname(output_file)
@@ -176,6 +207,20 @@ def encrypt_ids(input_file=None, output_file=None, key_output=None):
             writer.writerow(header)
             endpt_address_index = -1
         
+        # Find indices of date columns to be anonymized
+        birth_date_index = -1
+        death_date_index = -1
+        
+        try:
+            birth_date_index = header.index("BIRTH_DATE")
+        except ValueError:
+            pass
+            
+        try:
+            death_date_index = header.index("DEATH_DATE")
+        except ValueError:
+            pass
+            
         for row in reader:
             encrypted_row = []
             
@@ -184,19 +229,23 @@ def encrypt_ids(input_file=None, output_file=None, key_output=None):
                 if i == endpt_address_index:
                     continue
                     
-                if i <= 1:  # Process the first two columns
+                if i <= 1:  # Process the first two columns (IDs)
                     try:
                         encrypted_value = encrypt_single_id(key, value)
                         encrypted_row.append(encrypted_value)
                     except ValueError:
                         # Handle non-integer values
                         encrypted_row.append(value)
+                elif i == birth_date_index or i == death_date_index:
+                    # Anonymize date columns
+                    anonymized_date = anonymize_date(value)
+                    encrypted_row.append(anonymized_date)
                 else:
                     # Keep any other columns unchanged
                     encrypted_row.append(value)
             
             writer.writerow(encrypted_row)
 
-    print(f"Encryption complete. Output saved to {output_file}")
+    print(f"Encryption and date anonymization complete. Output saved to {output_file}")
     
     return key
