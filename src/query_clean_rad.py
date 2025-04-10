@@ -64,11 +64,11 @@ def extract_birads_and_description(row):
     # If no result from RADIOLOGY_REPORT, try RADIOLOGY_NARRATIVE
     if 'RADIOLOGY_NARRATIVE' in row and not pd.isna(row['RADIOLOGY_NARRATIVE']):
         text = row['RADIOLOGY_NARRATIVE']
-        return extract_birads_from_text(text, True)
+        return extract_birads_from_text(text)
     
     return None, None
 
-def extract_birads_from_text(text, test = False):
+def extract_birads_from_text(text):
     if pd.isna(text):
         return None, None
     
@@ -148,12 +148,6 @@ def extract_birads_from_text(text, test = False):
     pathology_match = re.search(r'ASSESSMENT:\s*\d+:\s*(Pathology\s+\w+)', text, re.IGNORECASE)
     if pathology_match:
         return None, pathology_match.group(1).strip()
-    
-    
-    birads_exists = re.search(r'BI-?RADS|BIRADS', text, re.IGNORECASE)
-    if birads_exists and test:
-        print("BI-RADS mentioned but category not extracted")
-        print(text)
     
     return None, None
 
