@@ -18,7 +18,8 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='DICOM processing pipeline')
     
     # Query arguments
-    parser.add_argument('--query', help='Run query with optional limit parameter (e.g., limit=10)')
+    parser.add_argument('--query', action='store_true', help='Run breast imaging query')
+    parser.add_argument('--limit', type=int, help='Optional limit for the query (e.g., 10)')
     
     # Download arguments
     parser.add_argument('--deploy', action='store_true', help='Deploy FastAPI to Cloud Run')
@@ -34,22 +35,23 @@ def main():
     """Main entry point for the script."""
     args = parse_arguments()
     
-    
     dicom_query_file = f'{env}/output/endpoint_data.csv'
     anon_file = f'{env}/output/anon_data.csv'
     key_output = f'{env}/encryption_key.pkl'
     
     # Handle query command
-    if args.query is not None:
-        limit = None
-        # Parse the limit parameter if provided
-        if args.query.startswith('limit='):
-            try:
-                limit = int(args.query.split('=')[1])
-                print(f"Setting query limit to {limit}")
-            except ValueError:
-                print(f"Invalid limit value: {args.query.split('=')[1]}")
-                sys.exit(1)
+    if args.query:
+        limit = args.limit
+        
+        # If no limit is specified, ask for confirmation
+        if limit is None:
+            confirmation = input("No limit specified. Are you sure you want to query without a limit? (y/n): ")
+            if confirmation.lower() not in ['y', 'yes']:
+                print("Query cancelled.")
+                sys.exit(0)
+            print("Proceeding with unlimited query.")
+        else:
+            print(f"Setting query limit to {limit}")
         
         # Run the query with the specified limit
         rad_df, path_df = run_breast_imaging_query(limit=limit)
@@ -65,10 +67,8 @@ def main():
         dicom_download_remote_start(dicom_query_file, args.deploy, args.cleanup)
         
     elif args.anon:
-        
         key = encrypt_ids(dicom_query_file, anon_file, key_output)
         
-
         BUCKET_PATH = f'{CONFIG["storage"]["download_path"]}/{args.anon}'
         BUCKET_OUTPUT_PATH = f'{CONFIG["storage"]["anonymized_path"]}/{args.anon}'
         deidentify_bucket_dicoms(

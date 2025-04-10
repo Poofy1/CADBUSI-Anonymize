@@ -1,6 +1,8 @@
 from google.cloud import bigquery
 import time
 import os
+import pandas as pd
+from tqdm import tqdm
 # Get the current script directory and go back one directory
 env = os.path.dirname(os.path.abspath(__file__))
 env = os.path.dirname(env)  # Go back one directory
@@ -112,12 +114,13 @@ def get_radiology_data(limit=None):
 
     return df
 
-def get_pathology_data(patient_ids):
+def get_pathology_data(patient_ids, batch_size=1000):
     """
-    Get pathology data for specific patient IDs
+    Get pathology data for specific patient IDs, processing in batches
     
     Args:
         patient_ids (list): List of patient IDs to query
+        batch_size (int): Number of patients to process in each batch
     
     Returns:
         pandas.DataFrame: Query results as a dataframe
@@ -126,60 +129,71 @@ def get_pathology_data(patient_ids):
     print("Initializing BigQuery client for pathology data...")
     client = bigquery.Client()
     
-    # Check if patient IDs are numeric and format accordingly to match column type
-    if patient_ids and all(str(id).isdigit() for id in patient_ids):
-        # Format as numbers without quotes for INT64 column
-        ids_str = ', '.join([str(id) for id in patient_ids])
+    # Process in batches
+    all_results = []
+    total_patients = len(patient_ids)
+    total_batches = (total_patients + batch_size - 1) // batch_size
+    
+    # Create a tqdm progress bar
+    for i in tqdm(range(0, total_patients, batch_size), total=total_batches):
+        batch = patient_ids[i:i+batch_size]
+
+        # Format IDs appropriately
+        if batch and all(str(id).isdigit() for id in batch):
+            ids_str = ', '.join([str(id) for id in batch])
+        else:
+            ids_str = ', '.join([f"'{id}'" for id in batch])
+        
+        query = f"""
+        SELECT 
+          PAT_DIM_PATIENT.PATIENT_CLINIC_NUMBER AS PATIENT_ID,
+          PATH_FACT_PATHOLOGY.SPECIMEN_NOTE,
+          PATH_FACT_PATHOLOGY.SPECIMEN_UPDATE_DTM,
+          PATH_FACT_PATHOLOGY.SPECIMEN_RESULT_DTM,
+          PATH_FACT_PATHOLOGY.SPECIMEN_RECEIVED_DTM,
+          PATH_FACT_PATHOLOGY.SPECIMEN_SERVICE_DESCRIPTION,
+          PATH_FACT_PATHOLOGY.ENCOUNTER_ID,
+          DIAGCODE_DIM_DIAGNOSIS_CODE.DIAGNOSIS_NAME,
+          PATH_FACT_PATHOLOGY.PATHOLOGY_COUNT,
+          PATH_FACT_PATHOLOGY.SPECIMEN_COMMENT,
+          PATH_FACT_PATHOLOGY.SPECIMEN_ACCESSION_DTM,
+          PATH_FACT_PATHOLOGY.SPECIMEN_ACCESSION_NUMBER,
+          SPECDET.PART_DESCRIPTION,
+          SPECPARTYP.SPECIMEN_PART_TYPE_CODE,
+          SPECPARTYP.SPECIMEN_PART_TYPE_NAME
+        FROM `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.FACT_PATHOLOGY` PATH_FACT_PATHOLOGY
+        INNER JOIN
+          `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.DIM_PATIENT` PAT_DIM_PATIENT
+          ON (PATH_FACT_PATHOLOGY.PATIENT_DK = PAT_DIM_PATIENT.PATIENT_DK)
+        LEFT JOIN
+          `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.DIM_PATHOLOGY_DIAGNOSIS_CODE_BRIDGE` PATHDIAG
+          ON (PATH_FACT_PATHOLOGY.PATHOLOGY_FPK = PATHDIAG.PATHOLOGY_FPK)
+        LEFT JOIN
+          `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.DIM_DIAGNOSIS_CODE` DIAGCODE_DIM_DIAGNOSIS_CODE
+          ON (PATHDIAG.DIAGNOSIS_CODE_DK = DIAGCODE_DIM_DIAGNOSIS_CODE.DIAGNOSIS_CODE_DK)
+        LEFT JOIN
+          `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.FACT_PATHOLOGY_SPECIMEN_DETAIL` SPECDET
+          ON (PATH_FACT_PATHOLOGY.PATHOLOGY_FPK = SPECDET.PATHOLOGY_FPK)
+        LEFT JOIN
+          `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.DIM_SPECIMEN_PART_TYPE` SPECPARTYP
+          ON (SPECDET.SPECIMEN_PART_TYPE_DK = SPECPARTYP.SPECIMEN_PART_TYPE_DK)
+        WHERE PAT_DIM_PATIENT.PATIENT_CLINIC_NUMBER IN ({ids_str})
+        AND (
+          LOWER(SPECPARTYP.SPECIMEN_PART_TYPE_CODE) IN ('breast','breast1','breast2','breast3','breast4','breast5','breast6','breast7','breast8','breast9','breast10','breast11')
+        )
+        """
+        
+        batch_df = client.query(query).to_dataframe()
+        all_results.append(batch_df)
+    
+    # Combine all batch results
+    if all_results:
+        df = pd.concat(all_results, ignore_index=True)
     else:
-        # Format as quoted strings for STRING column
-        ids_str = ', '.join([f"'{id}'" for id in patient_ids])
+        df = pd.DataFrame()
     
-    query = f"""
-    SELECT 
-      PAT_DIM_PATIENT.PATIENT_CLINIC_NUMBER AS PATIENT_ID,
-      PATH_FACT_PATHOLOGY.SPECIMEN_NOTE,
-      PATH_FACT_PATHOLOGY.SPECIMEN_UPDATE_DTM,
-      PATH_FACT_PATHOLOGY.SPECIMEN_RESULT_DTM,
-      PATH_FACT_PATHOLOGY.SPECIMEN_RECEIVED_DTM,
-      PATH_FACT_PATHOLOGY.SPECIMEN_SERVICE_DESCRIPTION,
-      PATH_FACT_PATHOLOGY.ENCOUNTER_ID,
-      DIAGCODE_DIM_DIAGNOSIS_CODE.DIAGNOSIS_NAME,
-      PATH_FACT_PATHOLOGY.PATHOLOGY_COUNT,
-      PATH_FACT_PATHOLOGY.SPECIMEN_COMMENT,
-      PATH_FACT_PATHOLOGY.SPECIMEN_ACCESSION_DTM,
-      PATH_FACT_PATHOLOGY.SPECIMEN_ACCESSION_NUMBER,
-      SPECDET.PART_DESCRIPTION,
-      SPECPARTYP.SPECIMEN_PART_TYPE_CODE,
-      SPECPARTYP.SPECIMEN_PART_TYPE_NAME
-    FROM `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.FACT_PATHOLOGY` PATH_FACT_PATHOLOGY
-    INNER JOIN
-      `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.DIM_PATIENT` PAT_DIM_PATIENT
-      ON (PATH_FACT_PATHOLOGY.PATIENT_DK = PAT_DIM_PATIENT.PATIENT_DK)
-    LEFT JOIN
-      `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.DIM_PATHOLOGY_DIAGNOSIS_CODE_BRIDGE` PATHDIAG
-      ON (PATH_FACT_PATHOLOGY.PATHOLOGY_FPK = PATHDIAG.PATHOLOGY_FPK)
-    LEFT JOIN
-      `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.DIM_DIAGNOSIS_CODE` DIAGCODE_DIM_DIAGNOSIS_CODE
-      ON (PATHDIAG.DIAGNOSIS_CODE_DK = DIAGCODE_DIM_DIAGNOSIS_CODE.DIAGNOSIS_CODE_DK)
-    LEFT JOIN
-      `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.FACT_PATHOLOGY_SPECIMEN_DETAIL` SPECDET
-      ON (PATH_FACT_PATHOLOGY.PATHOLOGY_FPK = SPECDET.PATHOLOGY_FPK)
-    LEFT JOIN
-      `ml-mps-adl-intudp-phi-p-d5cb.phi_udpwh_etl_us_p.DIM_SPECIMEN_PART_TYPE` SPECPARTYP
-      ON (SPECDET.SPECIMEN_PART_TYPE_DK = SPECPARTYP.SPECIMEN_PART_TYPE_DK)
-    WHERE PAT_DIM_PATIENT.PATIENT_CLINIC_NUMBER IN ({ids_str})
-    AND (
-      LOWER(SPECPARTYP.SPECIMEN_PART_TYPE_CODE) IN ('breast','breast1','breast2','breast3','breast4','breast5','breast6','breast7','breast8','breast9','breast10','breast11')
-    )
-    """
-    
-    query_start_time = time.time()
-    print("Executing pathology query...")
-    df = client.query(query).to_dataframe()
-    query_end_time = time.time()
-    query_duration = query_end_time - query_start_time
-    
-    print(f"Pathology query complete. Retrieved {len(df)} rows in {query_duration:.2f} seconds.")
+    total_duration = time.time() - start_time
+    print(f"Pathology query complete. Retrieved {len(df)} total rows in {total_duration:.2f} seconds.")
     
     return df
 
