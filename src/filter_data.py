@@ -45,6 +45,11 @@ def check_assumed_benign(final_df):
             followup_end = row['DATE'] + pd.Timedelta(days=730)  # 24 months
             malignancy_window_end = row['DATE'] + pd.Timedelta(days=450)  # 15 months
             
+            # Check if there's at least 6 months of follow-up data available
+            last_visit_date = patient_records[patient_records['DATE'] > row['DATE']]['DATE'].max()
+            if pd.isna(last_visit_date) or (last_visit_date - row['DATE']).days < 180:  # 6 months = 180 days
+                continue
+            
             # Filter for records in the biopsy window efficiently
             biopsy_window_records = patient_records[
                 (patient_records['DATE'] >= biopsy_window_start) &
@@ -94,6 +99,120 @@ def check_assumed_benign(final_df):
     
     return final_df
 
+def check_assumed_benign_birads3(final_df):
+    """
+    Check for benign cases based on 36-month follow-up for BI-RADS 3 cases.
+    Requirements:
+    1. Cases with BI-RADS '3'
+    2. Cases with no biopsy from -30 to +120 days around the US date
+    3. Cases where all future US exams within 36 months have BI-RADS null, 1, or 2
+       OR all future US exams have BI-RADS null, 0, 1, or 3 with at least one exam ≥24 months out
+    4. Cases with no 'MALIGNANT' in path_interpretation within 15 months
+    5. Minimum follow-up period of 4 months
+    """
+    today = pd.Timestamp.now()
+    
+    # Pre-compute the eligible US records with BI-RADS 3 to avoid processing irrelevant rows
+    us_mask = (final_df['MODALITY'] == 'US') & (final_df['BI-RADS'] == '3') & pd.notna(final_df['DATE'])
+    us_records = final_df[us_mask]
+    
+    # Only process patients who have eligible US records
+    patient_ids = us_records['PATIENT_ID'].unique()
+    
+    # Create a dictionary to store final interpretation updates
+    updates = {}
+    
+    for patient_id in tqdm(patient_ids, desc="Checking benign based on BI-RADS 3 followup"):
+        # Get all records for this patient once and sort them
+        patient_records = final_df[final_df['PATIENT_ID'] == patient_id].sort_values('DATE')
+        
+        # Process only eligible US records for this patient
+        patient_us_records = us_records[us_records['PATIENT_ID'] == patient_id]
+        
+        for idx, row in patient_us_records.iterrows():
+            # Skip records that are less than 36 months old
+            if (today - row['DATE']).days < 1095:  # 36 months = 1095 days
+                continue
+            
+            # Define time windows
+            biopsy_window_start = row['DATE'] - pd.Timedelta(days=30)
+            biopsy_window_end = row['DATE'] + pd.Timedelta(days=120)
+            followup_end = row['DATE'] + pd.Timedelta(days=1095)  # 36 months max
+            malignancy_window_end = row['DATE'] + pd.Timedelta(days=450)  # 15 months
+            
+
+            # Check if there's at least 4 months of follow-up data available
+            last_visit_date = patient_records[patient_records['DATE'] > row['DATE']]['DATE'].max()
+            if pd.isna(last_visit_date) or (last_visit_date - row['DATE']).days < 120:  # 4 months = 120 days
+                continue
+            
+            # Filter for records in the biopsy window efficiently
+            biopsy_window_records = patient_records[
+                (patient_records['DATE'] >= biopsy_window_start) &
+                (patient_records['DATE'] <= biopsy_window_end)
+            ]
+            
+            # Skip if any biopsies exist in this window
+            if 'is_biopsy' in biopsy_window_records.columns and (biopsy_window_records['is_biopsy'] == 'T').any():
+                continue
+            
+            # Filter for follow-up US records specifically
+            followup_us_records = patient_records[
+                (patient_records['DATE'] > row['DATE']) &
+                (patient_records['DATE'] <= followup_end) &
+                (patient_records['MODALITY'] == 'US')
+            ]
+
+            if len(followup_us_records) > 0 and 'BI-RADS' in followup_us_records.columns:
+                # FIRST CHECK: if all future US exams have BI-RADS null, 1, or 2
+                valid_birads_first_check = followup_us_records['BI-RADS'].isnull() | followup_us_records['BI-RADS'].isin(['1', '2'])
+                
+                if valid_birads_first_check.all():
+                    pass  # First check passes, continue with remaining checks
+                else:
+                    # SECOND CHECK: if first check fails, verify if all are null, 0, 1, or 3
+                    # AND at least one exam is ≥24 months after initial exam
+                    valid_birads_second_check = followup_us_records['BI-RADS'].isnull() | followup_us_records['BI-RADS'].isin(['1', '2', '3'])
+                    
+                    if not valid_birads_second_check.all():
+                        continue  # Neither check passes, skip this record
+                    
+                    # Check if at least one exam is 24+ months after the initial exam
+                    has_24month_followup = False
+                    for _, followup_row in followup_us_records.iterrows():
+                        if (followup_row['DATE'] - row['DATE']).days >= 730:  # 24 months = 730 days
+                            has_24month_followup = True
+                            break
+                    
+                    if not has_24month_followup:
+                        continue  # No 24+ month followup, skip this record
+            
+            # Filter for records in malignancy window
+            malignancy_records = patient_records[
+                (patient_records['DATE'] > row['DATE']) &
+                (patient_records['DATE'] <= malignancy_window_end)
+            ]
+            
+            # Check for 'MALIGNANT' in path_interpretation efficiently
+            if 'path_interpretation' in malignancy_records.columns:
+                # Check specifically for non-null values that contain "MALIGNANT"
+                has_malignancy = False
+                for _, malignancy_record in malignancy_records.iterrows():
+                    if pd.notna(malignancy_record.get('path_interpretation')) and 'MALIGNANT' in str(malignancy_record['path_interpretation']).upper():
+                        has_malignancy = True
+                        break
+                
+                if has_malignancy:
+                    continue
+
+            # If all checks pass, mark for update
+            updates[idx] = 'BENIGN3'
+    
+    # Apply all updates at once
+    for idx, value in updates.items():
+        final_df.at[idx, 'final_interpretation'] = value
+    
+    return final_df
 
 def check_malignant_from_biopsy(final_df):
     """
@@ -117,8 +236,8 @@ def check_malignant_from_biopsy(final_df):
 
 def check_from_next_diagnosis(final_df, days=240):
     """
-    For 'US' rows with empty final_interpretation, check if the next chronological 
-    record with a path_interpretation within 'days' is 'BENIGN' or 'MALIGNANT'.
+    For 'US' rows with empty final_interpretation and BI-RADS of '4A', '4B', '4C', '5', or '6',
+    check if the next chronological record with a path_interpretation within 'days' is 'BENIGN' or 'MALIGNANT'.
     
     For MALIGNANT cases: Set final_interpretation to 'MALIGNANT2' only if:
     1. The laterality matches between the US study and the pathology
@@ -131,6 +250,9 @@ def check_from_next_diagnosis(final_df, days=240):
     and if any MALIGNANT is present within the time frame, set to 'MALIGNANT2'
     (still requiring at least one 'is_us_biopsy' = 'T').
     """
+    # Define the target BI-RADS values
+    target_birads = ['4A', '4B', '4C', '5', '6']
+    
     for patient_id in tqdm(final_df['PATIENT_ID'].unique(), desc="Checking diagnosis from next record"):
         patient_mask = final_df['PATIENT_ID'] == patient_id
         patient_records = final_df[patient_mask].copy()
@@ -144,11 +266,13 @@ def check_from_next_diagnosis(final_df, days=240):
         
         # Iterate through US records with empty final_interpretation
         for idx, current_row in patient_records.iterrows():
-            # Check if current row is US with empty final_interpretation
+            # Check if current row is US with empty final_interpretation AND has target BI-RADS value
             if (pd.notna(current_row.get('MODALITY')) and 
                 current_row['MODALITY'] == 'US' and
                 (pd.isna(current_row['final_interpretation']) or 
-                 current_row['final_interpretation'] == '')):
+                 current_row['final_interpretation'] == '') and
+                pd.notna(current_row.get('BI-RADS')) and
+                current_row['BI-RADS'] in target_birads):
                 
                 # Get current date and calculate future date
                 if pd.isna(current_row['DATE']):
@@ -214,13 +338,16 @@ def determine_final_interpretation(final_df):
     """
     Determine final_interpretation for each patient based on specified rules.
     """
-    # First check: Identify BENIGN1 cases based on follow-up period
+    # Identify BENIGN1 cases based on follow-up period
     final_df = check_assumed_benign(final_df)
     
-    # Second check: Identify MALIGNANT1 cases from biopsy results for remaining cases
+    # Identify BENIGN3 cases based on follow-up period (Birads 3)
+    final_df = check_assumed_benign_birads3(final_df)
+    
+    # Identify MALIGNANT1 cases from biopsy results for remaining cases
     final_df = check_malignant_from_biopsy(final_df)
     
-    # Third check: Identify BENIGN2 cases based on next chronological path_interpretation
+    # Identify BENIGN2 cases based on next chronological path_interpretation
     final_df = check_from_next_diagnosis(final_df)
     
     return final_df
@@ -264,13 +391,12 @@ def combine_dataframes(rad_df, path_df):
     needed_columns = ['PATIENT_ID', 'DATE', 'Pathology_Laterality', 'final_diag', 'path_interpretation']
     path_needed = path_df[needed_columns] if all(col in path_df.columns for col in needed_columns) else path_df
     
-    # Create empty DataFrame with the same columns as rad_df
-    path_records_df = pd.DataFrame(columns=rad_df.columns)
+    # Create a copy of path_needed with the same columns as rad_df, plus any additional columns we need
+    path_records_df = pd.DataFrame(columns=list(set(rad_df.columns) | set(path_needed.columns)))
     
-    # Set values for columns that exist in both dataframes
+    # Fill in values from path_needed
     for col in path_needed.columns:
-        if col in path_records_df.columns:
-            path_records_df[col] = path_needed[col]
+        path_records_df[col] = path_needed[col]
     
     # Concatenate more efficiently with optimized settings
     final_df = pd.concat([rad_df, path_records_df], ignore_index=True, copy=False)
