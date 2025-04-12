@@ -249,89 +249,83 @@ def check_from_next_diagnosis(final_df, days=240):
     Special case: If Study_Laterality is 'BILATERAL', consider any future laterality,
     and if any MALIGNANT is present within the time frame, set to 'MALIGNANT2'
     (still requiring at least one 'is_us_biopsy' = 'T').
+
     """
     # Define the target BI-RADS values
-    target_birads = ['4A', '4B', '4C', '5', '6']
+    target_birads = ['4', '4A', '4B', '4C', '5', '6']
+    updates = {}
     
     for patient_id in tqdm(final_df['PATIENT_ID'].unique(), desc="Checking diagnosis from next record"):
         patient_mask = final_df['PATIENT_ID'] == patient_id
-        patient_records = final_df[patient_mask].copy()
+        patient_records = final_df[patient_mask].copy().sort_values('DATE')
         
-        # Only proceed if there are multiple records for this patient
-        if len(patient_records) < 2:
-            continue
+        # Pre-filter to only include relevant US records for this patient
+        relevant_records = patient_records[
+            (patient_records['MODALITY'] == 'US') & 
+            (patient_records['BI-RADS'].isin(target_birads)) & 
+            ((patient_records['final_interpretation'].isna()) | (patient_records['final_interpretation'] == '')) &
+            pd.notna(patient_records['DATE']) &
+            pd.notna(patient_records['Study_Laterality'])
+        ]
         
-        # Sort records by date
-        patient_records = patient_records.sort_values('DATE')
-        
-        # Iterate through US records with empty final_interpretation
-        for idx, current_row in patient_records.iterrows():
-            # Check if current row is US with empty final_interpretation AND has target BI-RADS value
-            if (pd.notna(current_row.get('MODALITY')) and 
-                current_row['MODALITY'] == 'US' and
-                (pd.isna(current_row['final_interpretation']) or 
-                 current_row['final_interpretation'] == '') and
-                pd.notna(current_row.get('BI-RADS')) and
-                current_row['BI-RADS'] in target_birads):
+        for idx, current_row in relevant_records.iterrows():
+            current_date = current_row['DATE']
+            future_date = current_date + pd.Timedelta(days=days)
+            current_laterality = current_row['Study_Laterality']
+            
+            # Find future records within the time window once
+            future_records = patient_records[
+                (patient_records['DATE'] > current_date) & 
+                (patient_records['DATE'] <= future_date)
+            ]
+            
+            # Check if there's at least one record with 'is_us_biopsy' = 'T' in the date range
+            has_us_biopsy = any(
+                (record['is_us_biopsy'] == 'T') 
+                for _, record in future_records.iterrows() 
+                if pd.notna(record.get('is_us_biopsy'))
+            )
+            
+            # Handle BILATERAL case
+            if current_laterality == 'BILATERAL':
+                path_interpretations = []
+                for _, future_row in future_records.iterrows():
+                    if pd.notna(future_row.get('path_interpretation')):
+                        path_interpretations.append(future_row['path_interpretation'].upper())
                 
-                # Get current date and calculate future date
-                if pd.isna(current_row['DATE']):
-                    continue
-                    
-                # Skip if Study_Laterality is missing
-                if pd.isna(current_row.get('Study_Laterality')):
-                    continue
+                # Prioritize malignant over benign
+                if 'MALIGNANT' in path_interpretations and has_us_biopsy:
+                    updates[idx] = 'MALIGNANT2'
+                elif 'BENIGN' in path_interpretations:
+                    updates[idx] = 'BENIGN2'
+            
+            # Handle regular laterality matching with corrected priority logic
+            else:
+                found_malignant = False
+                found_benign = False
                 
-                current_date = current_row['DATE']
-                future_date = current_date + pd.Timedelta(days=days) 
-                current_laterality = current_row['Study_Laterality']
+                # Check all matching records
+                for _, future_row in future_records.iterrows():
+                    if pd.notna(future_row.get('path_interpretation')):
+                        if (pd.notna(future_row.get('Pathology_Laterality')) and 
+                            future_row['Pathology_Laterality'] == current_laterality):
+                            
+                            path_interp = future_row['path_interpretation'].upper()
+                            if path_interp == 'MALIGNANT':
+                                found_malignant = True
+                            elif path_interp == 'BENIGN':
+                                found_benign = True
                 
-                # Find future records within the time window
-                future_records = patient_records[
-                    (patient_records['DATE'] > current_date) & 
-                    (patient_records['DATE'] <= future_date)
-                ]
-                
-                # Check if there's at least one record with 'is_us_biopsy' = 'T' in the date range
-                has_us_biopsy = any(
-                    (record['is_us_biopsy'] == 'T') 
-                    for _, record in future_records.iterrows() 
-                    if pd.notna(record.get('is_us_biopsy'))
-                )
-                
-                # Handle BILATERAL case differently
-                if current_laterality == 'BILATERAL':
-                    # Check all future records with pathology interpretation
-                    path_interpretations = []
-                    for _, future_row in future_records.iterrows():
-                        if pd.notna(future_row.get('path_interpretation')):
-                            path_interpretations.append(future_row['path_interpretation'].upper())
-                    
-                    # If any MALIGNANT is found and has_us_biopsy, set to MALIGNANT2
-                    if 'MALIGNANT' in path_interpretations and has_us_biopsy:
-                        final_df.at[idx, 'final_interpretation'] = 'MALIGNANT2'
-                    # If no MALIGNANT but at least one BENIGN, set to BENIGN2 (no us_biopsy requirement)
-                    elif 'BENIGN' in path_interpretations:
-                        final_df.at[idx, 'final_interpretation'] = 'BENIGN2'
-                
-                # Handle regular laterality matching
-                else:
-                    # Look for the next record with a valid path_interpretation
-                    for _, future_row in future_records.iterrows():
-                        if pd.notna(future_row.get('path_interpretation')):
-                            # Check if pathology laterality exists and matches the study laterality
-                            if (pd.notna(future_row.get('Pathology_Laterality')) and 
-                                future_row['Pathology_Laterality'] == current_laterality):
-                                
-                                # Check if benign or malignant
-                                path_interp = future_row['path_interpretation'].upper()
-                                if path_interp == 'BENIGN':
-                                    final_df.at[idx, 'final_interpretation'] = 'BENIGN2'
-                                    break  # Stop after finding benign
-                                elif path_interp == 'MALIGNANT' and has_us_biopsy:
-                                    final_df.at[idx, 'final_interpretation'] = 'MALIGNANT2'
-                                    break  # Stop after finding malignant
+                # Apply findings with correct priority
+                if found_malignant and has_us_biopsy:
+                    updates[idx] = 'MALIGNANT2'
+                elif found_benign:
+                    updates[idx] = 'BENIGN2'
     
+    # Apply all updates at once
+    for idx, value in updates.items():
+        final_df.at[idx, 'final_interpretation'] = value
+        
     return final_df
 
 def determine_final_interpretation(final_df):
