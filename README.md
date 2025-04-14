@@ -25,7 +25,7 @@ This will:
 3. Create a final dataset for processing
 4. Save results to `output/endpoint_data.csv`
 
-Example with a limit:`python main.py --query limit=100`
+Example with a limit:`python main.py --query --limit=100`
 
 
 ### Downloading DICOM Files
