@@ -78,6 +78,9 @@ def get_oauth2_token():
 
 async def retrieve_and_store_dicom(url, bucket_name, bucket_path):
     """Retrieves and stores all DICOM instances from a DICOMweb study."""
+    # Extract study ID from the URL
+    study_id_from_url = url.split('/')[-1]
+    
     storage_client = storage.Client()
     bucket = storage_client.bucket(bucket_name)
     
@@ -86,7 +89,6 @@ async def retrieve_and_store_dicom(url, bucket_name, bucket_path):
     headers["Authorization"] = f"Bearer {get_oauth2_token()}"
     
     try:
-        logger.info(f"Retrieving DICOM data from: {url}")
         response = requests.get(url, headers=headers)
         
         if response.status_code != 200:
@@ -118,8 +120,7 @@ async def retrieve_and_store_dicom(url, bucket_name, bucket_path):
                 with io.BytesIO(part.content) as dicom_data:
                     dcm = dicom.dcmread(dicom_data, force=True)
                     
-                    # Extract metadata for logging
-                    study_uid = str(dcm.get('StudyInstanceUID', 'unknown_study'))
+                    # Extract metadata for logging (not using study_uid for path anymore)
                     series_uid = str(dcm.get('SeriesInstanceUID', 'unknown_series'))
                     
                     # Get instance UID
@@ -132,22 +133,20 @@ async def retrieve_and_store_dicom(url, bucket_name, bucket_path):
                         instance_uid = f"unknown_uid_{instance_hash}"
                         logger.warning(f"No SOPInstanceUID found in DICOM, using generated ID: {instance_uid}")
                     
-                    # Create a hierarchical path for better organization
-                    file_path = f"{bucket_path}/{study_uid}/{series_uid}/{instance_uid}.dcm"
+                    # Use study ID from URL instead of study_uid from DICOM
+                    file_path = f"{bucket_path}/{study_id_from_url}/{series_uid}/{instance_uid}.dcm"
                     
                     # Upload to GCS
                     blob = bucket.blob(file_path)
                     blob.upload_from_string(part.content, content_type='application/dicom')
                     
                     success_count += 1
-                    logger.info(f"Uploaded DICOM instance {instance_uid} to {file_path}")
             
             except Exception as e:
                 logger.exception(f"Error processing DICOM instance: {e}")
             
             instance_count += 1
         
-        logger.info(f"Processed {success_count}/{instance_count} DICOM instances from study URL: {url}")
         return success_count > 0
         
     except Exception as e:
@@ -167,7 +166,7 @@ async def pubsub_push_handlers_receive(request: Request):
     try:
         token = bearer_token.split(" ")[1]
         claim = verify_jwt(token)
-        logger.info(f"Processing request with JWT claim ID: {claim.get('sub', 'unknown')}")
+        #logger.info(f"Processing request with JWT claim ID: {claim.get('sub', 'unknown')}")
 
         envelope = await request.json()
         if (
@@ -192,9 +191,7 @@ async def pubsub_push_handlers_receive(request: Request):
             # Retrieve and store the DICOM image
             success = await retrieve_and_store_dicom(dicom_url, bucket_name, bucket_path)
             
-            if success:
-                logger.info(f"Successfully processed DICOM from {dicom_url}")
-            else:
+            if not success:
                 logger.warning(f"Failed to process DICOM from {dicom_url}")
             
         else:
