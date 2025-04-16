@@ -195,7 +195,41 @@ def categorize_pathology(text):
     # Convert to uppercase for consistent matching
     text = str(text).upper()
     
-    # 1. Check for explicit negations first - highest priority
+    # 1. Check for malignant findings first
+    malignant_patterns = [
+        r"INVASIVE\s+DUCTAL\s+CARCINOMA",
+        r"DUCTAL\s+CARCINOMA\s+IN\s+SITU",
+        r"\bDCIS\b",
+        r"METASTATIC\s+CARCINOMA",
+        r"INVASIVE\s+CARCINOMA",
+        r"\bCARCINOMA\b",
+        r"\bMALIGNAN[CT]\b",
+        r"\bTUMOR\b",
+        r"METASTATIC",
+    ]
+    
+    # Flag to track if we found any non-negated malignant findings
+    found_malignant = False
+    
+    for pattern in malignant_patterns:
+        matches = list(re.finditer(pattern, text))
+        for match in matches:
+            # Get context around the match (50 characters before)
+            start_pos = max(0, match.start() - 50)
+            context_before = text[start_pos:match.start()]
+            
+            # Check if this is a negated finding
+            if not re.search(r"NEGATIVE\s+FOR|NO\s+EVIDENCE\s+OF|FREE\s+OF|ABSENCE\s+OF|NO\s+", context_before):
+                found_malignant = True
+                break
+        
+        if found_malignant:
+            break
+    
+    if found_malignant:
+        return "MALIGNANT"
+    
+    # 2. Check for explicit negation patterns
     negation_patterns = [
         r"NEGATIVE\s+FOR\s+(MALIGNAN[CT]|CARCINOMA|INVASIVE|DCIS|ATYPIA|TUMOR|NEOPLASM|METASTATIC)",
         r"NO\s+EVIDENCE\s+OF\s+(MALIGNAN[CT]|CARCINOMA|INVASIVE|DCIS|TUMOR|NEOPLASM|ATYPIA)",
@@ -210,29 +244,7 @@ def categorize_pathology(text):
         if re.search(pattern, text):
             return "BENIGN"
     
-    # 2. Check for explicit malignant findings
-    malignant_patterns = [
-        r"INVASIVE\s+DUCTAL\s+CARCINOMA",
-        r"DUCTAL\s+CARCINOMA\s+IN\s+SITU",
-        r"\bDCIS\b",
-        r"METASTATIC\s+CARCINOMA",
-        r"INVASIVE\s+CARCINOMA",
-        r"\bCARCINOMA\b",
-        r"\bMALIGNAN[CT]\b",
-        r"\bTUMOR\b(?!\s+NEGATIVE)",
-        r"METASTATIC",
-    ]
-    
-    for pattern in malignant_patterns:
-        if re.search(pattern, text):
-            # Make sure it's not negated
-            match = re.search(pattern, text)
-            start_pos = max(0, match.start() - 20)
-            context = text[start_pos:match.start()]
-            if not re.search(r"NEGATIVE\s+FOR|NO\s+EVIDENCE\s+OF|FREE\s+OF", context):
-                return "MALIGNANT"
-    
-    # 3. Check for explicit benign indicators and common benign patterns
+    # 3. Check for benign indicators
     benign_patterns = [
         r"\bBENIGN\b",
         r"FIBROCYSTIC",
@@ -244,7 +256,7 @@ def categorize_pathology(text):
         r"SCLEROSING\s+ADENOSIS",
         r"APOCRINE\s+METAPLASIA",
         r"USUAL\s+DUCTAL\s+HYPERPLASIA",
-        r"ATYPICAL\s+DUCTAL\s+HYPERPLASIA", # High risk
+        r"ATYPICAL\s+DUCTAL\s+HYPERPLASIA", 
         r"COLUMNAR\s+CELL\s+CHANGE",
         r"RADIAL\s+SCAR",
         r"FIBROSIS",
@@ -266,6 +278,7 @@ def categorize_pathology(text):
             return "BENIGN"
     
     return "UNKNOWN"
+
 
 def filter_path_data(pathology_df):
     print("Parsing Pathology Data")
