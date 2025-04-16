@@ -41,6 +41,9 @@ python main.py --rerun
 # Clean up Cloud Run resources when finished (REQUIRED)
 python main.py --cleanup
 ```
+
+IMPORTANT: After `python main.py --deploy` finishes execution, that does not mean the data transfer is complete. The download requests have been sent to Cloud Run. Check the bucket storage to see when population is finished. Only then should you run `python main.py --cleanup`
+
 ### Anonymizing DICOM Files
 
 To anonymize downloaded DICOM files:
