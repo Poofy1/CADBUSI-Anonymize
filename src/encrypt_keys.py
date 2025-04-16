@@ -197,15 +197,28 @@ def encrypt_ids(input_file=None, output_file=None, key_output=None):
         # Read header
         header = next(reader)
         
-        # Remove ENDPT_ADDRESS column if it exists
+        # Columns to remove
+        columns_to_remove = ["ENDPOINT_ADDRESS", "path_interpretation", "Pathology_Laterality", "final_diag"]
+        columns_to_simplify = ["final_interpretation"]
+        
+        # Find indices of columns to remove
+        columns_to_remove_indices = []
+        for col in columns_to_remove:
+            try:
+                columns_to_remove_indices.append(header.index(col))
+            except ValueError:
+                pass
+        
+        # Find index of final_interpretation column
+        final_interp_index = -1
         try:
-            endpt_address_index = header.index("ENDPOINT_ADDRESS")
-            new_header = [col for i, col in enumerate(header) if i != endpt_address_index]
-            writer.writerow(new_header)
+            final_interp_index = header.index("final_interpretation")
         except ValueError:
-            # If ENDPT_ADDRESS doesn't exist, keep the original header
-            writer.writerow(header)
-            endpt_address_index = -1
+            pass
+        
+        # Create new header by excluding columns to remove
+        new_header = [col for i, col in enumerate(header) if i not in columns_to_remove_indices]
+        writer.writerow(new_header)
         
         # Find indices of date columns to be anonymized
         birth_date_index = -1
@@ -225,8 +238,8 @@ def encrypt_ids(input_file=None, output_file=None, key_output=None):
             encrypted_row = []
             
             for i, value in enumerate(row):
-                # Skip the ENDPT_ADDRESS column
-                if i == endpt_address_index:
+                # Skip the columns to remove
+                if i in columns_to_remove_indices:
                     continue
                     
                 if i <= 1:  # Process the first two columns (IDs)
@@ -240,6 +253,12 @@ def encrypt_ids(input_file=None, output_file=None, key_output=None):
                     # Anonymize date columns
                     anonymized_date = anonymize_date(value)
                     encrypted_row.append(anonymized_date)
+                elif i == final_interp_index:
+                    # Simplify final_interpretation by removing the number at the end
+                    # Matches patterns like "BENIGN2", "MALIGNANT3" etc.
+                    import re
+                    simplified_value = re.sub(r'([A-Z]+)\d+', r'\1', value)
+                    encrypted_row.append(simplified_value)
                 else:
                     # Keep any other columns unchanged
                     encrypted_row.append(value)

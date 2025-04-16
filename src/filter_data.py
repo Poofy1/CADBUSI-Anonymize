@@ -236,23 +236,22 @@ def check_malignant_from_biopsy(final_df):
 
 def check_from_next_diagnosis(final_df, days=240):
     """
-    For 'US' rows with empty final_interpretation and BI-RADS of '4A', '4B', '4C', '5', or '6',
-    check if the next chronological record with a path_interpretation within 'days' is 'BENIGN' or 'MALIGNANT'.
+    For 'US' rows with empty final_interpretation:
+    - For MALIGNANT cases: Apply only to BI-RADS '4', '4A', '4B', '4C', '5', or '6'
+      Set final_interpretation to 'MALIGNANT2' only if:
+      1. The laterality matches between the US study and the pathology
+      2. At least one record in the date range has 'is_us_biopsy' = 'T'
     
-    For MALIGNANT cases: Set final_interpretation to 'MALIGNANT2' only if:
-    1. The laterality matches between the US study and the pathology
-    2. At least one record in the date range has 'is_us_biopsy' = 'T'
-    
-    For BENIGN cases: Set final_interpretation to 'BENIGN2' if:
-    1. The laterality matches between the US study and the pathology
+    - For BENIGN cases: Apply to all BI-RADS values
+      Set final_interpretation to 'BENIGN2' if:
+      1. The laterality matches between the US study and the pathology
     
     Special case: If Study_Laterality is 'BILATERAL', consider any future laterality,
     and if any MALIGNANT is present within the time frame, set to 'MALIGNANT2'
     (still requiring at least one 'is_us_biopsy' = 'T').
-
     """
-    # Define the target BI-RADS values
-    target_birads = ['4', '4A', '4B', '4C', '5', '6']
+    # Define the target BI-RADS values for malignant cases
+    target_birads_malignant = ['4', '4A', '4B', '4C', '5', '6']
     updates = {}
     
     for patient_id in tqdm(final_df['PATIENT_ID'].unique(), desc="Checking diagnosis from next record"):
@@ -260,9 +259,9 @@ def check_from_next_diagnosis(final_df, days=240):
         patient_records = final_df[patient_mask].copy().sort_values('DATE')
         
         # Pre-filter to only include relevant US records for this patient
+        # Note: We don't filter by BI-RADS here anymore
         relevant_records = patient_records[
             (patient_records['MODALITY'] == 'US') & 
-            (patient_records['BI-RADS'].isin(target_birads)) & 
             ((patient_records['final_interpretation'].isna()) | (patient_records['final_interpretation'] == '')) &
             pd.notna(patient_records['DATE']) &
             pd.notna(patient_records['Study_Laterality'])
@@ -272,6 +271,7 @@ def check_from_next_diagnosis(final_df, days=240):
             current_date = current_row['DATE']
             future_date = current_date + pd.Timedelta(days=days)
             current_laterality = current_row['Study_Laterality']
+            current_birads = current_row['BI-RADS']
             
             # Find future records within the time window once
             future_records = patient_records[
@@ -293,13 +293,14 @@ def check_from_next_diagnosis(final_df, days=240):
                     if pd.notna(future_row.get('path_interpretation')):
                         path_interpretations.append(future_row['path_interpretation'].upper())
                 
-                # Prioritize malignant over benign
-                if 'MALIGNANT' in path_interpretations and has_us_biopsy:
+                # Apply malignant case only for target BI-RADS values
+                if 'MALIGNANT' in path_interpretations and has_us_biopsy and current_birads in target_birads_malignant:
                     updates[idx] = 'MALIGNANT2'
-                elif 'BENIGN' in path_interpretations:
+                # Apply benign case for all BI-RADS values, but only if NO malignant cases are present
+                elif 'BENIGN' in path_interpretations and 'MALIGNANT' not in path_interpretations:
                     updates[idx] = 'BENIGN2'
-            
-            # Handle regular laterality matching with corrected priority logic
+
+            # Handle regular laterality matching
             else:
                 found_malignant = False
                 found_benign = False
@@ -316,10 +317,11 @@ def check_from_next_diagnosis(final_df, days=240):
                             elif path_interp == 'BENIGN':
                                 found_benign = True
                 
-                # Apply findings with correct priority
-                if found_malignant and has_us_biopsy:
+                # Apply malignant finding only for target BI-RADS values
+                if found_malignant and has_us_biopsy and current_birads in target_birads_malignant:
                     updates[idx] = 'MALIGNANT2'
-                elif found_benign:
+                # Apply benign finding for all BI-RADS values, but only if NO malignant cases are found
+                elif found_benign and not found_malignant:
                     updates[idx] = 'BENIGN2'
     
     # Apply all updates at once
@@ -341,7 +343,7 @@ def determine_final_interpretation(final_df):
     # Identify MALIGNANT1 cases from biopsy results for remaining cases
     final_df = check_malignant_from_biopsy(final_df)
     
-    # Identify BENIGN2 cases based on next chronological path_interpretation
+    # Identify BENIGN2 cases and MALIGNANT2 based on next chronological path_interpretation
     final_df = check_from_next_diagnosis(final_df)
     
     return final_df
