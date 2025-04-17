@@ -64,7 +64,9 @@ def extract_birads_and_description(row):
     # If no result from RADIOLOGY_REPORT, try RADIOLOGY_NARRATIVE
     if 'RADIOLOGY_NARRATIVE' in row and not pd.isna(row['RADIOLOGY_NARRATIVE']):
         text = row['RADIOLOGY_NARRATIVE']
-        return extract_birads_from_text(text)
+        result = extract_birads_from_text(text)
+        if result[0] is not None:  # If BI-RADS was found in RADIOLOGY_NARRATIVE
+            return result
     
     return None, None
 
@@ -82,6 +84,10 @@ def extract_birads_from_text(text):
     end_pattern = r'(?i)(' + '|'.join(end_keywords) + r')[^\w]'
     
     patterns = [
+        # "BI-RADS ASSESSMENT: CODE: X-DESCRIPTION" format
+        r'BI-?RADS\s+ASSESSMENT:\s*CODE:\s*(\d+[a-z]?)-([^\.\s]+)',
+        r'BI-?RADS:\s*Code\s*(\d+[a-z]?),\s*([^\.\s]+)',
+        
         # Ultrasound-specific patterns with description
         r'(?:Ultrasound|US)\s+BI-?RADS:\s*\(?(\d+[a-z]?)\)?\s+([^\s\.]+)',
         
@@ -94,7 +100,7 @@ def extract_birads_from_text(text):
         # Special case for description before number
         r'BI-?RADS:\s*([^(]+)\s*\((\d+[a-z]?)\)',
         
-        # New pattern for Final Assessment without BI-RADS explicitly mentioned
+        # Final Assessment without BI-RADS explicitly mentioned
         r'Final\s+Assessment:\s*\(?(\d+[a-z]?)\)?\s*(?:-|,)?\s*([^\.]+)',
         
         # Pattern for BI-RADS ATLAS category
@@ -135,6 +141,7 @@ def extract_birads_from_text(text):
         r'(?:Ultrasound|US)\s+BI-?RADS:\s*\(?(\d+[a-z]?)\)?',
         r'(?:BI-?RADS|BIRADS)(?:\s*(?:Category|CATEGORY|code))?(?::|:?\s+CATEGORY)?\s*\(?(\d+[A-Za-z]?)\)?',
         r'OVERALL\s*STUDY\s*BI-?RADS:\s*\(?(\d+[A-Za-z]?)\)?',
+        r'BI-?RADS\s+Category\s+No\.\s*(\d+[a-z]?)',
     ]:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
