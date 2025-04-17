@@ -288,6 +288,8 @@ def remove_outside_records(radiology_df):
     Returns:
         DataFrame with outside records removed
     """
+    initial_row_count = len(radiology_df)
+    
     # Make a copy to avoid warnings about setting values on a slice
     filtered_df = radiology_df.copy()
     
@@ -300,11 +302,47 @@ def remove_outside_records(radiology_df):
         # Apply the mask to filter out rows with 'OUTSIDE'
         filtered_df = filtered_df[mask]
     
+    # Calculate how many rows were removed
+    removed_count = initial_row_count - len(filtered_df)
+    print(f"Removed {removed_count} outside records")
+    
     return filtered_df
 
 
+
+def remove_bad_data(radiology_df):
+    # Remove duplicate rows based on Accession_Number
+    duplicate_accessions = radiology_df[radiology_df.duplicated(subset=['ACCESSION_NUMBER'], keep=False)]['ACCESSION_NUMBER']
+    duplicate_count = len(radiology_df[radiology_df['ACCESSION_NUMBER'].isin(duplicate_accessions)])
+    radiology_df = radiology_df[~radiology_df['ACCESSION_NUMBER'].isin(duplicate_accessions)]
+    
+    # Count and remove rows with BI-RADS = '0'
+    birads_zero_mask = radiology_df['BI-RADS'].isin(['0'])
+    birads_zero_count = birads_zero_mask.sum() 
+    radiology_df = radiology_df[~birads_zero_mask]
+    
+    # Remove patients without any 'US' modality exams
+    # First, find patients who have at least one 'US' modality
+    patients_with_us = radiology_df[radiology_df['MODALITY'] == 'US']['PATIENT_ID'].unique()
+    
+    # Count patients to be removed
+    patients_to_remove = set(radiology_df['PATIENT_ID'].unique()) - set(patients_with_us)
+    patients_removed_count = len(patients_to_remove)
+    
+    # Keep only patients who have at least one 'US' modality
+    radiology_df = radiology_df[radiology_df['PATIENT_ID'].isin(patients_with_us)]
+    
+    print(f"Removed {duplicate_count} rows with duplicate ACCESSION_NUMBER")
+    print(f"Removed {birads_zero_count} rows with BI-RADS = '0'")
+    print(f"Removed {patients_removed_count} patients without any 'US' modality exams (after previous removals)")
+    
+    return radiology_df
+    
 def filter_rad_data(radiology_df):
-    print("Parsing Radiology Data")
+    print("Parsing Radiology Data:")
+    
+    # Print length
+    print(f"Initial dataframe length: {len(radiology_df)} rows")
 
     rename_dict = {'PAT_PATIENT_CLINIC_NUMBER': 'PATIENT_ID',
         'IMGST_ACCESSION_IDENTIFIER_VALUE': 'Accession_Number',
@@ -343,6 +381,13 @@ def filter_rad_data(radiology_df):
     columns_to_drop = ['RADIOLOGY_NARRATIVE', 'PROCEDURE_CODE_TEXT', 'SERVICE_RESULT_STATUS', 'RADIOLOGY_REPORT', 'RAD_SERVICE_RESULT_STATUS']
     radiology_df = radiology_df.drop(columns=columns_to_drop, errors='ignore')
     
+    # Remove bad data
+    radiology_df = remove_bad_data(radiology_df)
+    
+    # Print final length
+    print(f"Final dataframe length: {len(radiology_df)} rows")
+    
+    # Save output
     radiology_df.to_csv(f'{env}/raw_data/parsed_radiology.csv', index=False)
     
     return radiology_df

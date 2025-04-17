@@ -217,19 +217,29 @@ def check_assumed_benign_birads3(final_df):
 def check_malignant_from_biopsy(final_df):
     """
     Check for malignancy indicators by marking rows as MALIGNANT1 
-    if BI-RADS = 6 and MODALITY is 'US', for cases without interpretation.
+    if BI-RADS = 6 and MODALITY is 'US', for cases without interpretation,
+    but only if there exists at least one 'MALIGNANT' in path_interpretation.
     """
-    us_birads6_rows = final_df[
-        (pd.notna(final_df.get('MODALITY'))) & 
-        (final_df['MODALITY'] == 'US') & 
-        (pd.notna(final_df.get('BI-RADS'))) & 
-        (final_df['BI-RADS'] == '6')
-    ].index
+    # First, check if any path_interpretation contains 'MALIGNANT'
+    has_malignant = any(
+        isinstance(interp, str) and 'MALIGNANT' in interp 
+        for interp in final_df['path_interpretation'] 
+        if pd.notna(interp)
+    )
     
-    for idx in tqdm(us_birads6_rows, desc="Checking BI-RADS 6 cases"):
-        row = final_df.loc[idx]
-        if pd.isna(row['final_interpretation']) or row['final_interpretation'] == '':
-            final_df.at[idx, 'final_interpretation'] = 'MALIGNANT1'
+    # Only proceed if there's at least one 'MALIGNANT' in path_interpretation
+    if has_malignant:
+        us_birads6_rows = final_df[
+            (pd.notna(final_df.get('MODALITY'))) & 
+            (final_df['MODALITY'] == 'US') & 
+            (pd.notna(final_df.get('BI-RADS'))) & 
+            (final_df['BI-RADS'] == '6')
+        ].index
+        
+        for idx in tqdm(us_birads6_rows, desc="Checking BI-RADS 6 cases"):
+            row = final_df.loc[idx]
+            if pd.isna(row['final_interpretation']) or row['final_interpretation'] == '':
+                final_df.at[idx, 'final_interpretation'] = 'MALIGNANT1'
     
     return final_df
 
@@ -242,7 +252,7 @@ def check_from_next_diagnosis(final_df, days=240):
       1. The laterality matches between the US study and the pathology
       2. At least one record in the date range has 'is_us_biopsy' = 'T'
     
-    - For BENIGN cases: Apply to all BI-RADS values
+    - For BENIGN cases: Apply only to BI-RADS '1', '2', '3', '4', '4A', '4B'
       Set final_interpretation to 'BENIGN2' if:
       1. The laterality matches between the US study and the pathology
     
@@ -250,8 +260,9 @@ def check_from_next_diagnosis(final_df, days=240):
     and if any MALIGNANT is present within the time frame, set to 'MALIGNANT2'
     (still requiring at least one 'is_us_biopsy' = 'T').
     """
-    # Define the target BI-RADS values for malignant cases
+    # Define the target BI-RADS values for malignant and benign cases
     target_birads_malignant = ['4', '4A', '4B', '4C', '5', '6']
+    target_birads_benign = ['1', '2', '3', '4', '4A', '4B']
     updates = {}
     
     for patient_id in tqdm(final_df['PATIENT_ID'].unique(), desc="Checking diagnosis from next record"):
@@ -259,7 +270,6 @@ def check_from_next_diagnosis(final_df, days=240):
         patient_records = final_df[patient_mask].copy().sort_values('DATE')
         
         # Pre-filter to only include relevant US records for this patient
-        # Note: We don't filter by BI-RADS here anymore
         relevant_records = patient_records[
             (patient_records['MODALITY'] == 'US') & 
             ((patient_records['final_interpretation'].isna()) | (patient_records['final_interpretation'] == '')) &
@@ -296,8 +306,8 @@ def check_from_next_diagnosis(final_df, days=240):
                 # Apply malignant case only for target BI-RADS values
                 if 'MALIGNANT' in path_interpretations and has_us_biopsy and current_birads in target_birads_malignant:
                     updates[idx] = 'MALIGNANT2'
-                # Apply benign case for all BI-RADS values, but only if NO malignant cases are present
-                elif 'BENIGN' in path_interpretations and 'MALIGNANT' not in path_interpretations:
+                # Apply benign case only for target benign BI-RADS values, and only if NO malignant cases are present
+                elif 'BENIGN' in path_interpretations and 'MALIGNANT' not in path_interpretations and current_birads in target_birads_benign:
                     updates[idx] = 'BENIGN2'
 
             # Handle regular laterality matching
@@ -320,8 +330,8 @@ def check_from_next_diagnosis(final_df, days=240):
                 # Apply malignant finding only for target BI-RADS values
                 if found_malignant and has_us_biopsy and current_birads in target_birads_malignant:
                     updates[idx] = 'MALIGNANT2'
-                # Apply benign finding for all BI-RADS values, but only if NO malignant cases are found
-                elif found_benign and not found_malignant:
+                # Apply benign finding only for target benign BI-RADS values, and only if NO malignant cases are found
+                elif found_benign and not found_malignant and current_birads in target_birads_benign:
                     updates[idx] = 'BENIGN2'
     
     # Apply all updates at once
@@ -329,6 +339,7 @@ def check_from_next_diagnosis(final_df, days=240):
         final_df.at[idx, 'final_interpretation'] = value
         
     return final_df
+
 
 def determine_final_interpretation(final_df):
     """
