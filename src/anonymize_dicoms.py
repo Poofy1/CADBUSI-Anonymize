@@ -16,81 +16,50 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import CONFIG
 
+# Define sets at module level for better performance
+NAMES_TO_REMOVE = {
+    'SOP Instance UID', 'Study Time', 'Series Time', 'Content Time',
+    'Study Instance UID', 'Series Instance UID', 'Private Creator',
+    'Media Storage SOP Instance UID', 'Implementation Class UID',
+    "Patient's Name", "Referring Physician's Name", "Acquisition DateTime",
+    "Institution Name", "Station Name", "Physician(s) of Record",
+    "Referenced SOP Class UID", "Referenced SOP Instance UID",
+    "Device Serial Number", "Patient Comments", "Issuer of Patient ID",
+    "Study ID", "Study Comments", "Current Patient Location",
+    "Requested Procedure ID", "Performed Procedure Step ID",
+    "Other Patient IDs", "Operators' Name", "Institutional Department Name",
+    "Manufacturer", "Requesting Physician",
+}
+
+NAMES_TO_ANON_TIME = {
+    'Study Time', 'Series Time', 'Content Time',
+}
+
 def anon_callback(ds, element):
-    names_to_remove = [
-        'SOP Instance UID',
-        'Study Time',
-        'Series Time',
-        'Content Time',
-        'Study Instance UID',
-        'Series Instance UID',
-        'Private Creator',
-        'Media Storage SOP Instance UID',
-        'Implementation Class UID',
-        "Patient's Name",
-        "Referring Physician's Name",
-        "Acquisition DateTime",
-        "Institution Name",
-        "Station Name",
-        "Physician(s) of Record",
-        "Referenced SOP Class UID",
-        "Referenced SOP Instance UID",
-        "Device Serial Number",
-        "Patient Comments",
-        "Issuer of Patient ID",
-        "Study ID",
-        "Study Comments",
-        "Current Patient Location",
-        "Requested Procedure ID",
-        "Performed Procedure Step ID",
-        "Other Patient IDs",
-        "Operators' Name",
-        "Institutional Department Name",
-        "Manufacturer",
-        "Requesting Physician",
-    ]
-    
-    names_to_anon_time = [
-        'Study Time',
-        'Series Time',
-        'Content Time',
-    ]
-    
-    if element.tag in ds:  # Check if the tag exists before attempting deletion
-        if element.name in names_to_remove:
-            del ds[element.tag]
-
+    # Check if the element name is in the removal set
+    if element.name in NAMES_TO_REMOVE:
+        del ds[element.tag]
+        
+    # Handle date elements
     if element.VR == "DA":
-        date = element.value
-        date = date[0:4] + "0101"  # set all dates to YYYY0101
-        element.value = date
-
-    if element.VR == "TM" and element.name not in names_to_anon_time:
+        element.value = element.value[0:4] + "0101"  # set all dates to YYYY0101
+    # Handle time elements not in the exception list
+    elif element.VR == "TM" and element.name not in NAMES_TO_ANON_TIME:
         element.value = "000000"  # set time to zeros
-    
-
-def dicom_media_type(dataset):
-    if hasattr(dataset, 'file_meta') and (0x00020002) in dataset.file_meta:
-        type = str(dataset.file_meta[0x00020002].value)
-        if type == '1.2.840.10008.5.1.4.1.1.6.1':  # single ultrasound image
-            return 'image'
-        elif type == '1.2.840.10008.5.1.4.1.1.3.1':  # multi-frame ultrasound image
-            return 'multi'
-        else:
-            return 'other'  # something else
-    else:
-        return 'unknown'
-
 
 def deidentify_dicom(ds):
-    ds.remove_private_tags() # take out private tags added by notion or otherwise
-
-    ds.file_meta.walk(anon_callback)
+    ds.remove_private_tags()  # take out private tags added by notion or otherwise
+    
+    # Avoid separate walks by combining them
     ds.walk(anon_callback)
+    # Only walk file_meta if it exists
+    if hasattr(ds, 'file_meta') and ds.file_meta is not None:
+        ds.file_meta.walk(anon_callback)
 
     media_type = ds.file_meta[0x00020002]
-    is_video = str(media_type).find('Multi-frame') > -1
-    is_secondary = str(media_type).find('Secondary') > -1
+    is_video = 'Multi-frame' in str(media_type)
+    is_secondary = 'Secondary' in str(media_type)
+    
     if is_secondary:
         y0 = 101
     else:
@@ -125,9 +94,11 @@ def deidentify_dicom(ds):
     # Update the Pixel Data
     ds.PixelData = arr.tobytes()
     
+    # Important: Keep the original transfer syntax - DO NOT MODIFY THIS LINE
     ds.file_meta.TransferSyntaxUID = ds.file_meta.TransferSyntaxUID
 
     return ds
+
 
 
 def create_dcm_filename(ds, key):
@@ -183,9 +154,26 @@ def create_dcm_filename(ds, key):
     return filename, ds  # return the modified DICOM dataset along with the filename
 
 
+def dicom_media_type(dataset):
+    if hasattr(dataset, 'file_meta') and (0x00020002) in dataset.file_meta:
+        type = str(dataset.file_meta[0x00020002].value)
+        if type == '1.2.840.10008.5.1.4.1.1.6.1':  # single ultrasound image
+            return 'image'
+        elif type == '1.2.840.10008.5.1.4.1.1.3.1':  # multi-frame ultrasound image
+            return 'multi'
+        else:
+            return 'other'  # something else
+    else:
+        return 'unknown'
+
 def process_single_blob(blob, client, output_bucket_name, output_bucket_path, encryption_key):
     """Process a single DICOM blob from GCP bucket"""
     try:
+        # Extract study_id from the original path
+        path_parts = blob.name.split('/')
+        # Assuming the path structure is {bucket_path}/{date}/{study_id}/...dicoms
+        study_id = path_parts[2] if len(path_parts) > 2 else "unknown_study"
+        
         # Download blob to a temporary file
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             blob.download_to_filename(temp_file.name)
@@ -207,7 +195,7 @@ def process_single_blob(blob, client, output_bucket_name, output_bucket_path, en
                 folder_name = f"{dataset.PatientID}_{dataset.AccessionNumber}"
                 
                 # Set the target path in GCP - now including study_id
-                output_blob_path = os.path.join(output_bucket_path, folder_name, new_filename)
+                output_blob_path = os.path.join(output_bucket_path, folder_name, study_id, new_filename)
                 
                 # Save the deidentified DICOM to a temporary file
                 temp_output_path = f"{temp_file.name}_output"
@@ -229,6 +217,40 @@ def process_single_blob(blob, client, output_bucket_name, output_bucket_path, en
     except Exception as e:
         print(f"Error processing {blob.name}: {e}")
         return None
+
+def process_batch(blob_batch, client, output_bucket_name, output_bucket_path, encryption_key):
+    """Process a batch of DICOM blobs"""
+    successful = 0
+    failed = 0
+    
+    # Use ThreadPoolExecutor with a limited number of workers
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        # Submit tasks to the executor
+        futures = {
+            executor.submit(
+                process_single_blob, 
+                blob, 
+                client, 
+                output_bucket_name, 
+                output_bucket_path, 
+                encryption_key
+            ): blob for blob in blob_batch
+        }
+        
+        # Process results as they complete
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing batch"):
+            try:
+                result = future.result()
+                if result:
+                    successful += 1
+                else:
+                    failed += 1
+            except Exception as exc:
+                print(f'An exception occurred: {exc}')
+                failed += 1
+                
+    return successful, failed
+
 
 def deidentify_bucket_dicoms(bucket_path, output_bucket_path, encryption_key, batch_size=100):
     """Process DICOM files from a GCP bucket and upload deidentified versions to output bucket"""
@@ -277,35 +299,3 @@ def deidentify_bucket_dicoms(bucket_path, output_bucket_path, encryption_key, ba
     print(f"Processing complete. Total: {total_processed}, Success: {successful}, Failed: {failed}")
     return successful, failed
 
-def process_batch(blob_batch, client, output_bucket_name, output_bucket_path, encryption_key):
-    """Process a batch of DICOM blobs"""
-    successful = 0
-    failed = 0
-    
-    # Use ThreadPoolExecutor with a limited number of workers
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        # Submit tasks to the executor
-        futures = {
-            executor.submit(
-                process_single_blob, 
-                blob, 
-                client, 
-                output_bucket_name, 
-                output_bucket_path, 
-                encryption_key
-            ): blob for blob in blob_batch
-        }
-        
-        # Process results as they complete
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing batch"):
-            try:
-                result = future.result()
-                if result:
-                    successful += 1
-                else:
-                    failed += 1
-            except Exception as exc:
-                print(f'An exception occurred: {exc}')
-                failed += 1
-                
-    return successful, failed
