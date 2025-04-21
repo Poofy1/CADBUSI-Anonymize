@@ -101,4 +101,4 @@ def display_dicom(dicom_file_path):
         traceback.print_exc()
 
 if __name__ == "__main__":
-    display_dicom("F:/CODE/CADBUSI/CADBUSI-Anonymize/dicoms/anon_dicoms_2025-04-01_221610_46858174_IIMS57960320_image_46858174_IIMS57960320_cb70c3b504c6a0eebb83467bfb9c77bf9bdae3365586aa0b17d2646edac88def.dcm")
+    display_dicom("D:/DATA/CASBUSI/dicoms/2025-04-16_225753/3379232_17381272/1.2.840.114350.2.451.2.798268.2.2222618735938.1/image_03379232_17381272_186d07eda02e05266693ac3e2d71d894a521df348a561b86a10f69c2f805d7f1.dcm")

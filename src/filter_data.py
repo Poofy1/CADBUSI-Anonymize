@@ -442,8 +442,10 @@ def create_final_dataset(rad_df, path_df):
     # Remove rows with 'incomplete' in the Biopsy column
     final_df_us = final_df_us[~(final_df_us['Biopsy'].str.contains('incomplete', case=False, na=False))]
     
-    # Remove duplicate ENDPOINT_ADDRESS entries
-    final_df_us = final_df_us.drop_duplicates(subset=['ENDPOINT_ADDRESS'], keep='first')
+    # Remove duplicate rows based on Accession_Number
+    duplicate_accessions = final_df_us[final_df_us.duplicated(subset=['ACCESSION_NUMBER'], keep=False)]['ACCESSION_NUMBER']
+    duplicate_count = len(final_df_us[final_df_us['ACCESSION_NUMBER'].isin(duplicate_accessions)])
+    final_df_us = final_df_us[~final_df_us['ACCESSION_NUMBER'].isin(duplicate_accessions)]
     
     # Extract STUDY_ID from ENDPOINT_ADDRESS
     final_df_us['STUDY_ID'] = final_df_us['ENDPOINT_ADDRESS'].apply(
@@ -455,6 +457,7 @@ def create_final_dataset(rad_df, path_df):
     final_df_us.to_csv(f'{env}/output/endpoint_data.csv', index=False)
 
     # Print statistics
+    print(f"Removed {duplicate_count} rows with duplicate ACCESSION_NUMBER")
     print(f"Dataset passed with {len(final_df_us)} results")
     
     return final_df

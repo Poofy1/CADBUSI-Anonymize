@@ -186,11 +186,6 @@ def create_dcm_filename(ds, key):
 def process_single_blob(blob, client, output_bucket_name, output_bucket_path, encryption_key):
     """Process a single DICOM blob from GCP bucket"""
     try:
-        # Extract study_id from the original path
-        path_parts = blob.name.split('/')
-        # Assuming the path structure is {bucket_path}/{date}/{study_id}/...dicoms
-        study_id = path_parts[2] if len(path_parts) > 2 else "unknown_study"
-        
         # Download blob to a temporary file
         with tempfile.NamedTemporaryFile(delete=False) as temp_file:
             blob.download_to_filename(temp_file.name)
@@ -212,7 +207,7 @@ def process_single_blob(blob, client, output_bucket_name, output_bucket_path, en
                 folder_name = f"{dataset.PatientID}_{dataset.AccessionNumber}"
                 
                 # Set the target path in GCP - now including study_id
-                output_blob_path = os.path.join(output_bucket_path, folder_name, study_id, new_filename)
+                output_blob_path = os.path.join(output_bucket_path, folder_name, new_filename)
                 
                 # Save the deidentified DICOM to a temporary file
                 temp_output_path = f"{temp_file.name}_output"

@@ -318,11 +318,6 @@ def remove_outside_records(radiology_df):
 
 
 def remove_bad_data(radiology_df):
-    # Remove duplicate rows based on Accession_Number
-    duplicate_accessions = radiology_df[radiology_df.duplicated(subset=['ACCESSION_NUMBER'], keep=False)]['ACCESSION_NUMBER']
-    duplicate_count = len(radiology_df[radiology_df['ACCESSION_NUMBER'].isin(duplicate_accessions)])
-    radiology_df = radiology_df[~radiology_df['ACCESSION_NUMBER'].isin(duplicate_accessions)]
-    
     # Count and remove rows with BI-RADS = '0'
     birads_zero_mask = radiology_df['BI-RADS'].isin(['0'])
     birads_zero_count = birads_zero_mask.sum() 
@@ -339,7 +334,7 @@ def remove_bad_data(radiology_df):
     # Keep only patients who have at least one 'US' modality
     radiology_df = radiology_df[radiology_df['PATIENT_ID'].isin(patients_with_us)]
     
-    print(f"Removed {duplicate_count} rows with duplicate ACCESSION_NUMBER")
+    
     print(f"Removed {birads_zero_count} rows with BI-RADS = '0'")
     print(f"Removed {patients_removed_count} patients without any 'US' modality exams (after previous removals)")
     
