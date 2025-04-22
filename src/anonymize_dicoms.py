@@ -165,39 +165,36 @@ def dicom_media_type(dataset):
 def process_single_blob(blob, client, output_bucket_name, output_bucket_path, encryption_key):
     """Process a single DICOM blob from GCP bucket using RAM"""
     try:
-        # Download blob directly to memory
-        blob_bytes = blob.download_as_bytes()
         
-        # Read the DICOM data from memory buffer
-        memory_buffer = BytesIO(blob_bytes)
-        dataset = pydicom.dcmread(memory_buffer, force=True)
+        with blob.open("rb") as f:
+            dataset = pydicom.dcmread(f, force=True)
         
-        # Check if this is a DICOM file we want to process
-        media_type = dicom_media_type(dataset)
-        if (media_type == 'image' and (0x0018, 0x6011) in dataset) or media_type == 'multi':
+            # Check if this is a DICOM file we want to process
+            media_type = dicom_media_type(dataset)
+            if (media_type == 'image' and (0x0018, 0x6011) in dataset) or media_type == 'multi':
+                
+                # Create a new filename using encryption
+                new_filename, dataset = create_dcm_filename(dataset, encryption_key)
+                
+                # De-identify the DICOM dataset
+                dataset = deidentify_dicom(dataset)
+                
+                # Create folder structure based on PatientID_AccessionNumber
+                folder_name = f"{dataset.PatientID}_{dataset.AccessionNumber}"
+                
+                # Set the target path in GCP - now including study_id
+                output_blob_path = os.path.join(output_bucket_path, folder_name, new_filename)
+                
+                # Save the deidentified DICOM directly to memory
+                output_buffer = BytesIO()
+                dataset.save_as(output_buffer)
+                output_buffer.seek(0)  # Reset buffer position to beginning
+                
+                # Upload the deidentified DICOM back to GCP directly from memory
+                output_bucket = client.bucket(output_bucket_name)
+                output_blob = output_bucket.blob(output_blob_path)
+                output_blob.upload_from_file(output_buffer)
             
-            # Create a new filename using encryption
-            new_filename, dataset = create_dcm_filename(dataset, encryption_key)
-            
-            # De-identify the DICOM dataset
-            dataset = deidentify_dicom(dataset)
-            
-            # Create folder structure based on PatientID_AccessionNumber
-            folder_name = f"{dataset.PatientID}_{dataset.AccessionNumber}"
-            
-            # Set the target path in GCP - now including study_id
-            output_blob_path = os.path.join(output_bucket_path, folder_name, new_filename)
-            
-            # Save the deidentified DICOM directly to memory
-            output_buffer = BytesIO()
-            dataset.save_as(output_buffer)
-            output_buffer.seek(0)  # Reset buffer position to beginning
-            
-            # Upload the deidentified DICOM back to GCP directly from memory
-            output_bucket = client.bucket(output_bucket_name)
-            output_blob = output_bucket.blob(output_blob_path)
-            output_blob.upload_from_file(output_buffer)
-        
         return blob.name
         
     except Exception as e:
@@ -210,7 +207,7 @@ def process_batch(blob_batch, client, output_bucket_name, output_bucket_path, en
     failed = 0
     
     # Use ThreadPoolExecutor with a limited number of workers
-    with ThreadPoolExecutor(max_workers=os.cpu_count() * 2) as executor:
+    with ThreadPoolExecutor(max_workers=os.cpu_count() * 4) as executor:
         # Submit tasks to the executor
         futures = {
             executor.submit(
