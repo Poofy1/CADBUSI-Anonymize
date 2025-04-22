@@ -35,8 +35,7 @@ def main():
     """Main entry point for the script."""
     args = parse_arguments()
     
-    dicom_query_file = f'{env}/output/endpoint_data.csv'
-    anon_file = f'{env}/output/anon_data.csv'
+    dicom_query_file = f'{env}/raw_data/endpoint_data.csv'
     key_output = f'{env}/encryption_key.pkl'
     
     # Handle query command
@@ -67,7 +66,11 @@ def main():
         dicom_download_remote_start(dicom_query_file, args.deploy, args.cleanup)
         
     elif args.anon:
-        key = encrypt_ids(dicom_query_file, anon_file, key_output)
+        
+        anon_file_gcp = f'{CONFIG["storage"]["anonymized_path"]}/{args.anon}/anon_data.csv'
+        anon_file_local = f'{env}/output/anon_data.csv'
+        
+        key = encrypt_ids(dicom_query_file, anon_file_gcp, anon_file_local, key_output)
         
         BUCKET_PATH = f'{CONFIG["storage"]["download_path"]}/{args.anon}'
         BUCKET_OUTPUT_PATH = f'{CONFIG["storage"]["anonymized_path"]}/{args.anon}'

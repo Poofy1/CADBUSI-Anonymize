@@ -221,7 +221,7 @@ def process_batch(blob_batch, client, output_bucket_name, output_bucket_path, en
         }
         
         # Process results as they complete
-        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing batch"):
+        for future in as_completed(futures):
             try:
                 result = future.result()
                 if result:
@@ -243,42 +243,33 @@ def deidentify_bucket_dicoms(bucket_path, output_bucket_path, encryption_key, ba
     # Get the bucket
     bucket = client.bucket(CONFIG["storage"]["bucket_name"])
     
-    # Process in batches to avoid memory issues
-    blobs_iterator = bucket.list_blobs(prefix=bucket_path)
+    # Count DICOM files first to calculate number of batches
+    dicom_files = [blob for blob in bucket.list_blobs(prefix=bucket_path) 
+                  if blob.name.lower().endswith('.dcm')]
+    total_files = len(dicom_files)
+    total_batches = (total_files + batch_size - 1) // batch_size  # Ceiling division
     
     total_processed = 0
     successful = 0
     failed = 0
     
     # Process in batches
-    current_batch = []
+    print(f"Starting batch processing of {total_batches} DICOM batches...")
     
-    print(f"Starting batch processing of DICOM files...")
-    
-    for blob in blobs_iterator:
-        if not blob.name.lower().endswith('.dcm'):
-            continue
+    # Create a single progress bar for all batches
+    with tqdm(total=total_batches, desc="Processing DICOM batches") as pbar:
+        # Process files in batches
+        for i in range(0, len(dicom_files), batch_size):
+            current_batch = dicom_files[i:i+batch_size]
             
-        current_batch.append(blob)
-        
-        # Process when batch is full
-        if len(current_batch) >= batch_size:
             success, fail = process_batch(current_batch, client, CONFIG["storage"]["bucket_name"], 
                                          output_bucket_path, encryption_key)
             successful += success
             failed += fail
             total_processed += len(current_batch)
-            print(f"Processed {total_processed} files. Success: {successful}, Failed: {failed}")
-            current_batch = []
-    
-    # Process any remaining files
-    if current_batch:
-        success, fail = process_batch(current_batch, client, CONFIG["storage"]["bucket_name"], 
-                                     output_bucket_path, encryption_key)
-        successful += success
-        failed += fail
-        total_processed += len(current_batch)
-        
+            
+            # Update progress bar by 1 batch
+            pbar.update(1)
+            
     print(f"Processing complete. Total: {total_processed}, Success: {successful}, Failed: {failed}")
     return successful, failed
-

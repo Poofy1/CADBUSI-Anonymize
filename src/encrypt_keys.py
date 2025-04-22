@@ -5,6 +5,13 @@ import csv
 import pickle
 import struct
 
+
+# Add parent directory to path
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config import CONFIG
+
+
 def generate_key():
     return os.urandom(16)  # 128-bit key
 
@@ -164,10 +171,12 @@ def anonymize_date(date_str):
         print(f"Warning: Couldn't anonymize date '{date_str}' - unexpected format")
         return date_str
 
-def encrypt_ids(input_file=None, output_file=None, key_output=None):
-    # Ensure output folder exists
-    output_dir = os.path.dirname(output_file)
-    os.makedirs(output_dir, exist_ok=True)
+def encrypt_ids(input_file=None, output_file_gcp=None, output_file_local=None, key_output=None):
+    
+    # Ensure output folder exists for local file
+    if output_file_local:
+        output_dir = os.path.dirname(output_file_local)
+        os.makedirs(output_dir, exist_ok=True)
     
     # Check if the key file already exists and load it
     if os.path.exists(key_output):
@@ -190,7 +199,7 @@ def encrypt_ids(input_file=None, output_file=None, key_output=None):
             pickle.dump(key, key_file)
         print(f"Generated new encryption key and saved to {key_output}")
 
-    with open(input_file, 'r') as infile, open(output_file, 'w', newline='') as outfile:
+    with open(input_file, 'r') as infile, open(output_file_local, 'w', newline='') as outfile:
         reader = csv.reader(infile)
         writer = csv.writer(outfile)
         
@@ -199,7 +208,6 @@ def encrypt_ids(input_file=None, output_file=None, key_output=None):
         
         # Columns to remove
         columns_to_remove = ["ENDPOINT_ADDRESS", "path_interpretation", "Pathology_Laterality", "final_diag"]
-        columns_to_simplify = ["final_interpretation"]
         
         # Find indices of columns to remove
         columns_to_remove_indices = []
@@ -265,6 +273,23 @@ def encrypt_ids(input_file=None, output_file=None, key_output=None):
             
             writer.writerow(encrypted_row)
 
-    print(f"Encryption and date anonymization complete. Output saved to {output_file}")
+    print(f"Encryption and date anonymization complete. Output saved locally to {output_file_local}")
+    
+
+    # Upload to GCS if output_file_gcp is specified
+    if output_file_gcp:
+        from google.cloud import storage
+        
+        # Get the bucket using the CONFIG variable
+        client = storage.Client()
+        bucket = client.bucket(CONFIG["storage"]["bucket_name"])
+        
+        # Determine the blob name - this is the path within the bucket
+        blob_name = f"{output_file_gcp}"
+        
+        # Upload the file to GCS
+        blob = bucket.blob(blob_name)
+        blob.upload_from_filename(output_file_local)
+        print(f"File uploaded to gs://{CONFIG['storage']['bucket_name']}/{blob_name}")
     
     return key
