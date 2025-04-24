@@ -36,12 +36,13 @@ def get_radiology_data(limit=None):
     Returns:
         pandas.DataFrame: Query results as a dataframe
     """
-    start_time = time.time()
+    
     print("Initializing BigQuery client for radiology data...")
     client = bigquery.Client()
     
     query = f"""
     -- First identify patients with breast imaging studies and at least one US modality
+    -- excluding patients with US_CORE_BIRTHSEX = 'M'
     WITH breast_imaging_patients AS (
       SELECT DISTINCT PAT_PATIENT.CLINIC_NUMBER AS PATIENT_ID
       FROM `ml-mps-adl-intfhr-phi-p-3b6e.phi_secondary_use_fhir_clinicnumber_us_p.ImagingStudy` imaging
@@ -51,6 +52,7 @@ def get_radiology_data(limit=None):
         ON (imaging.ACCESSION_IDENTIFIER_VALUE = RAD_FACT_RADIOLOGY.ACCESSION_NBR)
       WHERE procedure_code_coding_code IN ({BREAST_FILTER})
         AND RAD_FACT_RADIOLOGY.SERVICE_MODALITY_CODE = 'US'
+        AND PAT_PATIENT.US_CORE_BIRTHSEX != 'M'
     """
     
     if limit is not None:
