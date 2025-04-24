@@ -35,7 +35,7 @@ def main():
     """Main entry point for the script."""
     args = parse_arguments()
     
-    dicom_query_file = f'{env}/raw_data/endpoint_data.csv'
+    dicom_query_file = f'{env}/output/endpoint_data.csv'
     key_output = f'{env}/encryption_key.pkl'
     
     # Handle query command
