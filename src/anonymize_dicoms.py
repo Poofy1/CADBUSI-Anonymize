@@ -147,29 +147,23 @@ def create_dcm_filename(ds, key):
 
     return filename, ds  # return the modified DICOM dataset along with the filename
 
-def process_single_blob(blob, client, output_bucket_name, output_bucket_path, encryption_key, max_retries=3, retry_delay=2):
+def process_single_blob(blob, client, output_bucket_name, output_bucket_path, encryption_key, max_retries=3):
     """Process a single DICOM blob from GCP bucket using RAM with download retry logic"""
     # First try to download the blob with retries
     dataset = None
-    retry_count = 0
     
-    while dataset is None and retry_count <= max_retries:
+    for attempt in range(max_retries):
         try:
-            with blob.open("rb") as f:
-                dataset = pydicom.dcmread(f, force=True)
-                # Maybe verify the dataset is valid here
-                if not hasattr(dataset, 'file_meta'):
-                    raise ValueError("Invalid DICOM file - missing file_meta attribute")
-                
+            bytes_data = blob.download_as_bytes()
+            dataset = pydicom.dcmread(BytesIO(bytes_data), force=True)
+            break
         except Exception as e:
-            retry_count += 1
-            if retry_count <= max_retries:
-                print(f"Error downloading {blob.name}: {e}. Retrying ({retry_count}/{max_retries})...")
-                time.sleep(retry_delay * retry_count)  # Exponential backoff
-            else:
-                print(f"Failed to download {blob.name} after {max_retries} retries: {e}")
+            if attempt == max_retries - 1:
+                print(f"Failed to download from GCP after {max_retries} attempts: {str(e)}")
                 return None
-    
+            print(f"Download attempt {attempt + 1} failed, retrying...")
+            time.sleep(1 * (attempt + 1))
+            
     # If we have a valid dataset, proceed with processing
     try:
         # Create a new filename using encryption
