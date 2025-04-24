@@ -207,7 +207,7 @@ def encrypt_ids(input_file=None, output_file_gcp=None, output_file_local=None, k
         header = next(reader)
         
         # Columns to remove
-        columns_to_remove = ["ENDPOINT_ADDRESS", "path_interpretation", "Pathology_Laterality", "final_diag"]
+        columns_to_remove = ["ENDPOINT_ADDRESS", "path_interpretation", "Pathology_Laterality", "final_diag", "STUDY_ID"]
         
         # Find indices of columns to remove
         columns_to_remove_indices = []
