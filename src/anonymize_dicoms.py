@@ -6,6 +6,7 @@ import hashlib
 from src.encrypt_keys import *
 from google.cloud import storage
 from io import BytesIO
+import time
 env = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -58,13 +59,10 @@ def deidentify_dicom(ds):
     is_video = 'Multi-frame' in str(media_type)
     is_secondary = 'Secondary' in str(media_type)
     
-    if is_secondary:
-        y0 = 101
-    else:
-        if (0x0018, 0x6011) in ds:
+    y0 = 101
+    
+    if not is_secondary and (0x0018, 0x6011) in ds:
             y0 = ds['SequenceOfUltrasoundRegions'][0]['RegionLocationMinY0'].value
-        else:
-            y0 = 101
 
     if 'OriginalAttributesSequence' in ds:
         del ds.OriginalAttributesSequence
@@ -149,52 +147,53 @@ def create_dcm_filename(ds, key):
 
     return filename, ds  # return the modified DICOM dataset along with the filename
 
-
-def dicom_media_type(dataset):
-    if hasattr(dataset, 'file_meta') and (0x00020002) in dataset.file_meta:
-        type = str(dataset.file_meta[0x00020002].value)
-        if type == '1.2.840.10008.5.1.4.1.1.6.1':  # single ultrasound image
-            return 'image'
-        elif type == '1.2.840.10008.5.1.4.1.1.3.1':  # multi-frame ultrasound image
-            return 'multi'
-        else:
-            return 'other'  # something else
-    else:
-        return 'unknown'
-
-def process_single_blob(blob, client, output_bucket_name, output_bucket_path, encryption_key):
-    """Process a single DICOM blob from GCP bucket using RAM"""
+def process_single_blob(blob, client, output_bucket_name, output_bucket_path, encryption_key, max_retries=3, retry_delay=2):
+    """Process a single DICOM blob from GCP bucket using RAM with download retry logic"""
+    # First try to download the blob with retries
+    dataset = None
+    retry_count = 0
+    
+    while dataset is None and retry_count <= max_retries:
+        try:
+            with blob.open("rb") as f:
+                dataset = pydicom.dcmread(f, force=True)
+                # Maybe verify the dataset is valid here
+                if not hasattr(dataset, 'file_meta'):
+                    raise ValueError("Invalid DICOM file - missing file_meta attribute")
+                
+        except Exception as e:
+            retry_count += 1
+            if retry_count <= max_retries:
+                print(f"Error downloading {blob.name}: {e}. Retrying ({retry_count}/{max_retries})...")
+                time.sleep(retry_delay * retry_count)  # Exponential backoff
+            else:
+                print(f"Failed to download {blob.name} after {max_retries} retries: {e}")
+                return None
+    
+    # If we have a valid dataset, proceed with processing
     try:
+        # Create a new filename using encryption
+        new_filename, dataset = create_dcm_filename(dataset, encryption_key)
         
-        with blob.open("rb") as f:
-            dataset = pydicom.dcmread(f, force=True)
+        # De-identify the DICOM dataset
+        dataset = deidentify_dicom(dataset)
         
-            # Check if this is a DICOM file we want to process
-            media_type = dicom_media_type(dataset)
-            if (media_type == 'image' and (0x0018, 0x6011) in dataset) or media_type == 'multi':
-                
-                # Create a new filename using encryption
-                new_filename, dataset = create_dcm_filename(dataset, encryption_key)
-                
-                # De-identify the DICOM dataset
-                dataset = deidentify_dicom(dataset)
-                
-                # Create folder structure based on PatientID_AccessionNumber
-                folder_name = f"{dataset.PatientID}_{dataset.AccessionNumber}"
-                
-                # Set the target path in GCP - now including study_id
-                output_blob_path = os.path.join(output_bucket_path, folder_name, new_filename)
-                
-                # Save the deidentified DICOM directly to memory
-                output_buffer = BytesIO()
-                dataset.save_as(output_buffer)
-                output_buffer.seek(0)  # Reset buffer position to beginning
-                
-                # Upload the deidentified DICOM back to GCP directly from memory
-                output_bucket = client.bucket(output_bucket_name)
-                output_blob = output_bucket.blob(output_blob_path)
-                output_blob.upload_from_file(output_buffer)
-            
+        # Create folder structure based on PatientID_AccessionNumber
+        folder_name = f"{dataset.PatientID}_{dataset.AccessionNumber}"
+        
+        # Set the target path in GCP - now including study_id
+        output_blob_path = os.path.join(output_bucket_path, folder_name, new_filename)
+        
+        # Save the deidentified DICOM directly to memory
+        output_buffer = BytesIO()
+        dataset.save_as(output_buffer)
+        output_buffer.seek(0)  # Reset buffer position to beginning
+        
+        # Upload the deidentified DICOM back to GCP directly from memory
+        output_bucket = client.bucket(output_bucket_name)
+        output_blob = output_bucket.blob(output_blob_path)
+        output_blob.upload_from_file(output_buffer)
+        
         return blob.name
         
     except Exception as e:
