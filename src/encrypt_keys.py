@@ -288,6 +288,7 @@ def encrypt_ids(input_file=None, output_file_gcp=None, output_file_local=None, k
         blob_name = f"{output_file_gcp}"
         
         # Upload the file to GCS
+        blob_name = os.path.normpath(blob_name)
         blob = bucket.blob(blob_name)
         blob.upload_from_filename(output_file_local)
         print(f"File uploaded to gs://{CONFIG['storage']['bucket_name']}/{blob_name}")
