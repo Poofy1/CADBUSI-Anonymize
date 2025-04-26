@@ -281,10 +281,9 @@ def categorize_pathology(text):
     return "UNKNOWN"
 
 
-def filter_path_data(pathology_df):
+def filter_path_data(pathology_df, output_path):
     print("Parsing Pathology Data")
-    output_path = os.path.join(env, "raw_data")
-    
+
     initial_count = len(pathology_df)
     append_audit(output_path, f"Starting pathology filtering with {initial_count} records")
     

@@ -343,9 +343,8 @@ def remove_bad_data(radiology_df, output_path):
     
     return radiology_df
     
-def filter_rad_data(radiology_df):
+def filter_rad_data(radiology_df, output_path):
     print("Parsing Radiology Data:")
-    output_path = os.path.join(env, "raw_data")
     
     # Print length
     initial_count = len(radiology_df)

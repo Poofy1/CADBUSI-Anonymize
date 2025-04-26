@@ -37,6 +37,7 @@ def main():
     
     dicom_query_file = f'{env}/output/endpoint_data.csv'
     key_output = f'{env}/encryption_key.pkl'
+    output_path = os.path.join(env, "raw_data")
     
     # Handle query command
     if args.query:
@@ -56,11 +57,11 @@ def main():
         rad_df, path_df = run_breast_imaging_query(limit=limit)
 
         # Parse that data
-        rad_df = filter_rad_data(rad_df)
-        path_df = filter_path_data(path_df)
+        rad_df = filter_rad_data(rad_df, output_path)
+        path_df = filter_path_data(path_df, output_path)
         
         # Filter data
-        create_final_dataset(rad_df, path_df)
+        create_final_dataset(rad_df, path_df, output_path)
     
     elif args.deploy or args.cleanup or args.rerun:
         dicom_download_remote_start(dicom_query_file, args.deploy, args.cleanup)
