@@ -215,7 +215,7 @@ def run_breast_imaging_query(limit=None):
         print(f"Created directory: {data_dir}")
     
     # Set up our audit destination
-    append_audit(data_dir, f"Starting breast imaging query process with patient limit={limit}")
+    append_audit(data_dir, f"Starting breast imaging query process with patient limit={limit}", new_file=True)
     
     total_start_time = time.time()
     print("Starting breast imaging query process...")
