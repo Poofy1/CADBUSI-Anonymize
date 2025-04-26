@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 from tqdm import tqdm
-
+from tools.audit import append_audit
 # Get the current script directory and go back one directory
 env = os.path.dirname(os.path.abspath(__file__))
 env = os.path.dirname(env)  # Go back one directory
@@ -341,10 +341,13 @@ def check_from_next_diagnosis(final_df, days=240):
     return final_df
 
 
-def determine_final_interpretation(final_df):
+def determine_final_interpretation(final_df, output_path):
     """
     Determine final_interpretation for each patient based on specified rules.
     """
+    initial_count = len(final_df)
+    
+    
     # Identify BENIGN1 cases based on follow-up period
     final_df = check_assumed_benign(final_df)
     
@@ -356,6 +359,21 @@ def determine_final_interpretation(final_df):
     
     # Identify BENIGN2 cases and MALIGNANT2 based on next chronological path_interpretation
     final_df = check_from_next_diagnosis(final_df)
+    
+    # After all processing, search for specific categories in the source column
+    benign1_count = sum(final_df['source'] == 'BENIGN1')
+    benign2_count = sum(final_df['source'] == 'BENIGN2')
+    benign3_count = sum(final_df['source'] == 'BENIGN3')
+    malignant1_count = sum(final_df['source'] == 'MALIGNANT1')
+    malignant2_count = sum(final_df['source'] == 'MALIGNANT2')
+    
+    # Create audit log with counts for each category
+    append_audit(output_path, f"Case classification breakdown: "
+                             f"BENIGN1: {benign1_count} ({benign1_count/initial_count*100:.1f}%), "
+                             f"BENIGN2: {benign2_count} ({benign2_count/initial_count*100:.1f}%), "
+                             f"BENIGN3: {benign3_count} ({benign3_count/initial_count*100:.1f}%), "
+                             f"MALIGNANT1: {malignant1_count} ({malignant1_count/initial_count*100:.1f}%), "
+                             f"MALIGNANT2: {malignant2_count} ({malignant2_count/initial_count*100:.1f}%)")
     
     return final_df
 
@@ -411,7 +429,7 @@ def combine_dataframes(rad_df, path_df):
     return final_df
 
 
-def create_final_dataset(rad_df, path_df):
+def create_final_dataset(rad_df, path_df, output_path):
     """Main function to create the final dataset with pathology records on separate rows."""
     print("Creating Final Dataset")
     
@@ -422,25 +440,38 @@ def create_final_dataset(rad_df, path_df):
     final_df = combine_dataframes(rad_df, path_df)
     
     # Determine final interpretation
-    final_df = determine_final_interpretation(final_df)
+    final_df = determine_final_interpretation(final_df, output_path)
     
     # Save to CSV
-    final_df.to_csv(f'{env}/raw_data/combined_dataset_debug.csv', index=False)
+    final_df.to_csv(f'{output_path}/combined_dataset_debug.csv', index=False)
     
     # Print statistics
     print(f"Dataset created with {len(final_df)} records")
+    append_audit(output_path, f"Dataset created with {len(final_df)} records")
     
     # Filter to keep only rows with 'US' in MODALITY
+    initial_count = len(final_df)
     final_df_us = final_df[final_df['MODALITY'].str.contains('US', na=False, case=False)]
+    filtered_count = initial_count - len(final_df_us)
+
+    append_audit(output_path, f"Filtered to US modality only: removed {filtered_count} non-US records out of {initial_count} total")
 
     # Remove rows with empty ENDPOINT_ADDRESS or empty final_interpretation
+    empty_endpoint_count = sum(final_df_us['ENDPOINT_ADDRESS'].isna())
+    empty_interpretation_count = sum(final_df_us['final_interpretation'].isna())
+    total_empty_rows = sum(final_df_us['ENDPOINT_ADDRESS'].isna() | final_df_us['final_interpretation'].isna())
+
     final_df_us = final_df_us[
         final_df_us['ENDPOINT_ADDRESS'].notna() & 
         final_df_us['final_interpretation'].notna()
     ]
+
+    append_audit(output_path, f"Removed {total_empty_rows} rows with missing data: {empty_endpoint_count} missing addresses, {empty_interpretation_count} missing interpretations")
     
     # Remove rows with 'incomplete' in the Biopsy column
+    incomplete_count = sum(final_df_us['Biopsy'].str.contains('incomplete', case=False, na=False))
     final_df_us = final_df_us[~(final_df_us['Biopsy'].str.contains('incomplete', case=False, na=False))]
+    append_audit(output_path, f"Removed {incomplete_count} rows with incomplete biopsies")
     
     # Remove duplicate rows based on Accession_Number
     duplicate_accessions = final_df_us[final_df_us.duplicated(subset=['ACCESSION_NUMBER'], keep=False)]['ACCESSION_NUMBER']
@@ -458,7 +489,9 @@ def create_final_dataset(rad_df, path_df):
 
     # Print statistics
     print(f"Removed {duplicate_count} rows with duplicate ACCESSION_NUMBER")
+    append_audit(output_path, f"Removed {duplicate_count} rows with duplicate ACCESSION_NUMBER")
     print(f"Dataset passed with {len(final_df_us)} results")
+    append_audit(output_path, f"Dataset passed with {len(final_df_us)} results")
     
     return final_df
 
@@ -467,17 +500,20 @@ def create_final_dataset(rad_df, path_df):
 if __name__ == "__main__":
     # Load the parsed radiology and pathology data
     try:
-        rad_file_path = f'{env}/raw_data/parsed_radiology.csv'
-        path_file_path = f'{env}/raw_data/parsed_pathology.csv'
+        output_path = os.path.join(env, "raw_data")
+        rad_file_path = f'{output_path}/parsed_radiology.csv'
+        path_file_path = f'{output_path}/parsed_pathology.csv'
         
         rad_df = pd.read_csv(rad_file_path)
         print(f"Loaded radiology data with {len(rad_df)} records")
+        append_audit(output_path, f"Loaded radiology data with {len(rad_df)} records")
         
         path_df = pd.read_csv(path_file_path)
         print(f"Loaded pathology data with {len(path_df)} records")
+        append_audit(output_path, f"Loaded pathology data with {len(path_df)} records")
         
         # Call the create_final_dataset function
-        create_final_dataset(rad_df, path_df)
+        create_final_dataset(rad_df, path_df, output_path)
         
     except FileNotFoundError as e:
         print(f"Error: {e}")

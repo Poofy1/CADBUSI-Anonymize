@@ -7,6 +7,7 @@ from src.encrypt_keys import *
 from google.cloud import storage
 from io import BytesIO
 import time
+from tools.audit import append_audit
 env = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -263,6 +264,7 @@ def deidentify_bucket_dicoms(bucket_path, output_bucket_path, encryption_key, ba
             
             # Update progress bar by 1 batch
             pbar.update(1)
-            
+    
+    append_audit(os.path.join(env, "raw_data"), f"DICOM deidentification complete: {successful} successful, {failed} failed out of {total_files} total files")
     print(f"Processing complete. Total: {total_processed}, Success: {successful}, Failed: {failed}")
     return successful, failed

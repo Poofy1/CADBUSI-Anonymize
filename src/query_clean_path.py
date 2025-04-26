@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 import re
+from tools.audit import append_audit
 
 # Get the current script directory and go back one directory
 env = os.path.dirname(os.path.abspath(__file__))
@@ -282,6 +283,10 @@ def categorize_pathology(text):
 
 def filter_path_data(pathology_df):
     print("Parsing Pathology Data")
+    output_path = os.path.join(env, "raw_data")
+    
+    initial_count = len(pathology_df)
+    append_audit(output_path, f"Starting pathology filtering with {initial_count} records")
     
     # Extract final diagnosis from SPECIMEN_NOTE
     pathology_df['final_diag'] = pathology_df['SPECIMEN_NOTE'].apply(extract_final_diagnosis)
@@ -325,9 +330,12 @@ def filter_path_data(pathology_df):
     duplicates_removed = rows_before - rows_after
     
     print(f"Removed {duplicates_removed} exact duplicate rows.")
+    append_audit(output_path, f"Removed {duplicates_removed} duplicate pathology records")
+    append_audit(output_path, f"Final pathology record count: {rows_after}")
+
     
     # Save to CSV
-    output_df.to_csv(f'{env}/raw_data/parsed_pathology.csv', index=False)
+    output_df.to_csv(f'{output_path}/parsed_pathology.csv', index=False)
     
     return output_df
 
