@@ -360,12 +360,12 @@ def determine_final_interpretation(final_df, output_path):
     # Identify BENIGN2 cases and MALIGNANT2 based on next chronological path_interpretation
     final_df = check_from_next_diagnosis(final_df)
     
-    # After all processing, search for specific categories in the source column
-    benign1_count = sum(final_df['source'] == 'BENIGN1')
-    benign2_count = sum(final_df['source'] == 'BENIGN2')
-    benign3_count = sum(final_df['source'] == 'BENIGN3')
-    malignant1_count = sum(final_df['source'] == 'MALIGNANT1')
-    malignant2_count = sum(final_df['source'] == 'MALIGNANT2')
+    # After all processing, search for specific categories in the final_interpretation column
+    benign1_count = sum(final_df['final_interpretation'] == 'BENIGN1')
+    benign2_count = sum(final_df['final_interpretation'] == 'BENIGN2')
+    benign3_count = sum(final_df['final_interpretation'] == 'BENIGN3')
+    malignant1_count = sum(final_df['final_interpretation'] == 'MALIGNANT1')
+    malignant2_count = sum(final_df['final_interpretation'] == 'MALIGNANT2')
     
     # Create audit log with counts for each category
     append_audit(output_path, f"Case classification breakdown: "
