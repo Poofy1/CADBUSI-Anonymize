@@ -289,6 +289,7 @@ def filter_path_data(pathology_df, output_path):
     
     # Split cases into separate rows via lesions
     expanded_df = split_lesions(pathology_df)
+    append_audit(output_path, f"{len(pathology_df)} pathology records had {len(expanded_df)} lesions")
     
     # Re-determine laterality after splitting (for rows that didn't have it set during splitting)
     expanded_df['Pathology_Laterality'] = expanded_df.apply(determine_laterality, axis=1)
@@ -326,8 +327,8 @@ def filter_path_data(pathology_df, output_path):
     duplicates_removed = rows_before - rows_after
     
     print(f"Removed {duplicates_removed} exact duplicate rows.")
-    append_audit(output_path, f"Removed {duplicates_removed} pathology records - Duplicates")
-    append_audit(output_path, f"Total pathology record count: {rows_after}")
+    append_audit(output_path, f"Removed {duplicates_removed} pathology lesions - Duplicates")
+    append_audit(output_path, f"Pathology lesion count: {rows_after}")
 
     
     # Save to CSV

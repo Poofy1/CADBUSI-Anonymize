@@ -242,7 +242,7 @@ def run_breast_imaging_query(limit=None):
     # Audit pathology results
     path_path = os.path.join(env, "raw_data", "raw_pathology.csv")
     path_df.to_csv(path_path, index=False)
-    append_audit(data_dir, f"Found {len(path_df)} Pathology records")
+    append_audit(data_dir, f"Found {len(path_df)} pathology records")
     print(f"Pathology data saved")
     
     # Calculate patient coverage metrics

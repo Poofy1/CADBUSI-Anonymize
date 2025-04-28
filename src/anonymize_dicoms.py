@@ -339,6 +339,7 @@ def deidentify_bucket_dicoms(bucket_path, output_bucket_path, encryption_key, ba
     append_audit(os.path.join(env, "raw_data"), f"{error_counters['pixel_data_errors']} DICOMs Failed - Missing pixel data in the DICOM file")
     append_audit(os.path.join(env, "raw_data"), f"{error_counters['decompression_errors']} DICOMs Failed - Decompression errors")
     append_audit(os.path.join(env, "raw_data"), f"{error_counters['other_errors']} DICOMs Failed - Other errors")
+    append_audit(os.path.join(env, "raw_data"), f"Remaining DICOMs: {successful}")
     
     print(f"Processing complete. Total: {total_processed}, Success: {successful}, Failed: {failed}")
     print(f"Error breakdown:")

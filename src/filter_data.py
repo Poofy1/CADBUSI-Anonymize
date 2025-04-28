@@ -451,7 +451,7 @@ def create_final_dataset(rad_df, path_df, output_path):
     final_df_us = final_df[final_df['MODALITY'].str.contains('US', na=False, case=False)]
     filtered_count = initial_count - len(final_df_us)
 
-    append_audit(output_path, f"Removed {filtered_count} radiology records - non-US records")
+    append_audit(output_path, f"Removed {filtered_count - path_df_length} radiology records - non-US records")  # path_df_length were removed here but lets keep radiology context
 
     # Remove rows with empty ENDPOINT_ADDRESS or empty final_interpretation
     empty_endpoint_count = sum(final_df_us['ENDPOINT_ADDRESS'].isna())
@@ -462,7 +462,7 @@ def create_final_dataset(rad_df, path_df, output_path):
         final_df_us['final_interpretation'].notna()
     ]
 
-    append_audit(output_path, f"Removed {empty_endpoint_count - path_df_length} radiology records - missing pixel addresses") # path_df_length were removed here but lets keep radiology context
+    append_audit(output_path, f"Removed {empty_endpoint_count} radiology records - missing pixel addresses")
     append_audit(output_path, f"Removed {empty_interpretation_count} radiology records - missing final label")
     
     # Remove rows with 'incomplete' in the Biopsy column
