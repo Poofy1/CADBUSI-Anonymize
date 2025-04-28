@@ -338,8 +338,8 @@ def remove_bad_data(radiology_df, output_path):
     
     print(f"Removed {birads_zero_count} rows with BI-RADS = '0'")
     print(f"Removed {patients_removed_count} patients without any 'US' modality exams (after previous removals)")
-    append_audit(output_path, f"Removed {birads_zero_count} rows with BI-RADS = '0'")
-    append_audit(output_path, f"Removed {patients_removed_count} patients without any 'US' modality exams")
+    append_audit(output_path, f"Removed {birads_zero_count} radiology records - with BI-RADS = '0'")
+    append_audit(output_path, f"Removed {patients_removed_count} radiology patients - missing >=1 'US' modality exam (after previous removals)")
     
     return radiology_df
     
@@ -349,7 +349,6 @@ def filter_rad_data(radiology_df, output_path):
     # Print length
     initial_count = len(radiology_df)
     print(f"Initial dataframe length: {initial_count} rows")
-    append_audit(output_path, f"Starting with {initial_count} radiology records")
 
     rename_dict = {'PAT_PATIENT_CLINIC_NUMBER': 'PATIENT_ID',
         'IMGST_ACCESSION_IDENTIFIER_VALUE': 'Accession_Number',
@@ -362,7 +361,7 @@ def filter_rad_data(radiology_df, output_path):
     count_before = len(radiology_df)
     radiology_df = remove_outside_records(radiology_df)
     outside_removed = count_before - len(radiology_df)
-    append_audit(output_path, f"Removed {outside_removed} outside records")
+    append_audit(output_path, f"Removed {outside_removed} radiology records - Labeled as 'outside'")
     
     # Apply the extraction functions and create new columns
     radiology_df['Density_Desc'] = radiology_df['RADIOLOGY_REPORT'].apply(extract_density)
@@ -396,8 +395,7 @@ def filter_rad_data(radiology_df, output_path):
     
     # Print final length
     final_count = len(radiology_df)
-    total_removed = initial_count - final_count
-    append_audit(output_path, f"Final count: {final_count} records (removed {total_removed} total)")
+    append_audit(output_path, f"Total radiology record count: {final_count}")
     print(f"Final dataframe length: {len(radiology_df)} rows")
     
     # Save output

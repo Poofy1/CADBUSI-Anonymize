@@ -8,7 +8,9 @@ from google.cloud import storage
 from io import BytesIO
 import time
 from tools.audit import append_audit
+# Get the current script directory and go back one directory
 env = os.path.dirname(os.path.abspath(__file__))
+env = os.path.dirname(env)  # Go back one directory
 
 
 # Add parent directory to path
@@ -148,8 +150,12 @@ def create_dcm_filename(ds, key):
 
     return filename, ds  # return the modified DICOM dataset along with the filename
 
-def process_single_blob(blob, client, output_bucket_name, output_bucket_path, encryption_key, max_retries=3):
+def process_single_blob(blob, client, output_bucket_name, output_bucket_path, encryption_key, max_retries=3, error_counters=None):
     """Process a single DICOM blob from GCP bucket using RAM with download retry logic"""
+    # Initialize error counters if not provided
+    if error_counters is None:
+        error_counters = {"metadata_errors": 0, "pixel_data_errors": 0, "decompression_errors": 0, "other_errors": 0}
+    
     # First try to download the blob with retries
     dataset = None
     
@@ -161,17 +167,50 @@ def process_single_blob(blob, client, output_bucket_name, output_bucket_path, en
         except Exception as e:
             if attempt == max_retries - 1:
                 print(f"Failed to download from GCP after {max_retries} attempts: {str(e)}")
-                return None
+                error_counters["other_errors"] += 1
+                return None, error_counters
             print(f"Download attempt {attempt + 1} failed, retrying...")
             time.sleep(1 * (attempt + 1))
             
     # If we have a valid dataset, proceed with processing
     try:
         # Create a new filename using encryption
-        new_filename, dataset = create_dcm_filename(dataset, encryption_key)
+        try:
+            new_filename, dataset = create_dcm_filename(dataset, encryption_key)
+        except KeyError as e:
+            print(f"Metadata tag error in {blob.name}: Missing tag {e}")
+            error_counters["metadata_errors"] += 1
+            return None, error_counters
+        except Exception as e:
+            print(f"Filename creation error in {blob.name}: {str(e)}")
+            error_counters["other_errors"] += 1
+            return None, error_counters
+            
+        # Check for pixel data before deidentification
+        if not hasattr(dataset, 'pixel_array'):
+            print(f"No pixel data found in {blob.name}")
+            error_counters["pixel_data_errors"] += 1
+            return None, error_counters
         
         # De-identify the DICOM dataset
-        dataset = deidentify_dicom(dataset)
+        try:
+            dataset = deidentify_dicom(dataset)
+            if dataset is None:
+                print(f"Deidentification failed for {blob.name}")
+                error_counters["other_errors"] += 1
+                return None, error_counters
+        except NotImplementedError as e:
+            print(f"Decompression not supported for {blob.name}: Missing required libraries")
+            error_counters["decompression_errors"] += 1
+            return None, error_counters
+        except Exception as e:
+            if "compression" in str(e).lower():
+                print(f"Decompression error in {blob.name}: Missing required libraries")
+                error_counters["decompression_errors"] += 1
+            else:
+                print(f"Deidentification error in {blob.name}: {str(e)}")
+                error_counters["other_errors"] += 1
+            return None, error_counters
         
         # Create folder structure based on PatientID_AccessionNumber
         folder_name = f"{dataset.PatientID}_{dataset.AccessionNumber}"
@@ -189,13 +228,25 @@ def process_single_blob(blob, client, output_bucket_name, output_bucket_path, en
         output_blob = output_bucket.blob(output_blob_path)
         output_blob.upload_from_file(output_buffer)
         
-        return blob.name
+        return blob.name, error_counters
         
     except Exception as e:
-        print(f"Error processing {blob.name}: {e}")
-        return None
+        error_msg = str(e)
+        if "(0002,0002)" in error_msg:
+            print(f"Metadata tag error in {blob.name}: Issue with Media Storage SOP Class UID")
+            error_counters["metadata_errors"] += 1
+        elif "no pixel data" in error_msg.lower():
+            print(f"No pixel data found in {blob.name}")
+            error_counters["pixel_data_errors"] += 1
+        elif "decompress" in error_msg.lower() and "missing dependencies" in error_msg.lower():
+            print(f"Decompression error in {blob.name}: Missing required libraries")
+            error_counters["decompression_errors"] += 1
+        else:
+            print(f"Error processing {blob.name}: {error_msg[:100]}")  # Limit error message length
+            error_counters["other_errors"] += 1
+        return None, error_counters
 
-def process_batch(blob_batch, client, output_bucket_name, output_bucket_path, encryption_key):
+def process_batch(blob_batch, client, output_bucket_name, output_bucket_path, encryption_key, error_counters):
     """Process a batch of DICOM blobs"""
     successful = 0
     failed = 0
@@ -210,23 +261,30 @@ def process_batch(blob_batch, client, output_bucket_name, output_bucket_path, en
                 client, 
                 output_bucket_name, 
                 output_bucket_path, 
-                encryption_key
+                encryption_key,
+                3,  # max_retries
+                error_counters
             ): blob for blob in blob_batch
         }
         
         # Process results as they complete
         for future in as_completed(futures):
             try:
-                result = future.result()
+                result, updated_counters = future.result()
+                # Merge the error counters from this thread
+                for key in error_counters:
+                    error_counters[key] = updated_counters[key]
+                
                 if result:
                     successful += 1
                 else:
                     failed += 1
             except Exception as exc:
                 print(f'An exception occurred: {exc}')
+                error_counters["other_errors"] += 1
                 failed += 1
                 
-    return successful, failed
+    return successful, failed, error_counters
 
 
 def deidentify_bucket_dicoms(bucket_path, output_bucket_path, encryption_key, batch_size=100):
@@ -237,11 +295,20 @@ def deidentify_bucket_dicoms(bucket_path, output_bucket_path, encryption_key, ba
     # Get the bucket
     bucket = client.bucket(CONFIG["storage"]["bucket_name"])
     
+    # Initialize error counters
+    error_counters = {
+        "metadata_errors": 0,
+        "pixel_data_errors": 0,
+        "decompression_errors": 0,
+        "other_errors": 0
+    }
+    
     # Count DICOM files first to calculate number of batches
     dicom_files = [blob for blob in bucket.list_blobs(prefix=bucket_path) 
                   if blob.name.lower().endswith('.dcm')]
     total_files = len(dicom_files)
     total_batches = (total_files + batch_size - 1) // batch_size  # Ceiling division
+    append_audit(os.path.join(env, "raw_data"), f"Found {total_files} DICOMs")
     
     total_processed = 0
     successful = 0
@@ -256,8 +323,10 @@ def deidentify_bucket_dicoms(bucket_path, output_bucket_path, encryption_key, ba
         for i in range(0, len(dicom_files), batch_size):
             current_batch = dicom_files[i:i+batch_size]
             
-            success, fail = process_batch(current_batch, client, CONFIG["storage"]["bucket_name"], 
-                                         output_bucket_path, encryption_key)
+            success, fail, error_counters = process_batch(
+                current_batch, client, CONFIG["storage"]["bucket_name"], 
+                output_bucket_path, encryption_key, error_counters
+            )
             successful += success
             failed += fail
             total_processed += len(current_batch)
@@ -265,6 +334,17 @@ def deidentify_bucket_dicoms(bucket_path, output_bucket_path, encryption_key, ba
             # Update progress bar by 1 batch
             pbar.update(1)
     
-    append_audit(os.path.join(env, "raw_data"), f"DICOM deidentification complete: {successful} successful, {failed} failed out of {total_files} total files")
+    # Print detailed error counts
+    append_audit(os.path.join(env, "raw_data"), f"{error_counters['metadata_errors']} DICOMs Failed - Issues with DICOM metadata tags")
+    append_audit(os.path.join(env, "raw_data"), f"{error_counters['pixel_data_errors']} DICOMs Failed - Missing pixel data in the DICOM file")
+    append_audit(os.path.join(env, "raw_data"), f"{error_counters['decompression_errors']} DICOMs Failed - Decompression errors")
+    append_audit(os.path.join(env, "raw_data"), f"{error_counters['other_errors']} DICOMs Failed - Other errors")
+    
     print(f"Processing complete. Total: {total_processed}, Success: {successful}, Failed: {failed}")
+    print(f"Error breakdown:")
+    print(f"- Metadata errors: {error_counters['metadata_errors']}")
+    print(f"- Pixel data errors: {error_counters['pixel_data_errors']}")
+    print(f"- Decompression errors: {error_counters['decompression_errors']}")
+    print(f"- Other errors: {error_counters['other_errors']}")
+    
     return successful, failed

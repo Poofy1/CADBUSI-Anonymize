@@ -283,9 +283,6 @@ def categorize_pathology(text):
 
 def filter_path_data(pathology_df, output_path):
     print("Parsing Pathology Data")
-
-    initial_count = len(pathology_df)
-    append_audit(output_path, f"Starting pathology filtering with {initial_count} records")
     
     # Extract final diagnosis from SPECIMEN_NOTE
     pathology_df['final_diag'] = pathology_df['SPECIMEN_NOTE'].apply(extract_final_diagnosis)
@@ -329,8 +326,8 @@ def filter_path_data(pathology_df, output_path):
     duplicates_removed = rows_before - rows_after
     
     print(f"Removed {duplicates_removed} exact duplicate rows.")
-    append_audit(output_path, f"Removed {duplicates_removed} duplicate pathology records")
-    append_audit(output_path, f"Final pathology record count: {rows_after}")
+    append_audit(output_path, f"Removed {duplicates_removed} pathology records - Duplicates")
+    append_audit(output_path, f"Total pathology record count: {rows_after}")
 
     
     # Save to CSV

@@ -222,43 +222,36 @@ def run_breast_imaging_query(limit=None):
     
     # Step 1: Get all radiology data for breast imaging
     print("\n=== RADIOLOGY DATA QUERY ===")
-    rad_start_time = time.time()
     rad_df = get_radiology_data(limit=limit)
-    rad_end_time = time.time()
-    rad_duration = rad_end_time - rad_start_time
-    
+
     # Audit radiology results
     rad_path = os.path.join(env, "raw_data", "raw_radiology.csv")
     rad_df.to_csv(rad_path, index=False)
-    append_audit(data_dir, f"Radiology query complete: {len(rad_df)} records retrieved in {rad_duration:.2f} seconds")
+    append_audit(data_dir, f"Found {len(rad_df)} radiology records")
     print(f"Radiology data saved")
     
     # Extract unique patient IDs from the radiology data
     patient_ids = rad_df['PATIENT_ID'].unique().tolist()
-    append_audit(data_dir, f"Extracted {len(patient_ids)} unique patient IDs for pathology query")
+    append_audit(data_dir, f"Found {len(patient_ids)} radiology patients")
     print(f"Extracted {len(patient_ids)} unique patient IDs for pathology query")
     
     # Step 2: Get pathology data for these patients
     print("\n=== PATHOLOGY DATA QUERY ===")
-    path_start_time = time.time()
     path_df = get_pathology_data(patient_ids)
-    path_end_time = time.time()
-    path_duration = path_end_time - path_start_time
     
     # Audit pathology results
     path_path = os.path.join(env, "raw_data", "raw_pathology.csv")
     path_df.to_csv(path_path, index=False)
-    append_audit(data_dir, f"Pathology query complete: {len(path_df)} records retrieved in {path_duration:.2f} seconds")
+    append_audit(data_dir, f"Found {len(path_df)} Pathology records")
     print(f"Pathology data saved")
     
     # Calculate patient coverage metrics
     patients_with_path = path_df['PATIENT_ID'].nunique()
     coverage_percentage = (patients_with_path / len(patient_ids)) * 100 if patient_ids else 0
-    append_audit(data_dir, f"Patient coverage: {patients_with_path} of {len(patient_ids)} patients ({coverage_percentage:.1f}%) have pathology data")
+    append_audit(data_dir, f"{patients_with_path} of {len(patient_ids)} radiology patients ({coverage_percentage:.1f}%) have pathology data")
     
     total_end_time = time.time()
     total_duration = total_end_time - total_start_time
-    append_audit(data_dir, f"All queries complete! Total execution time: {total_duration:.2f} seconds")
     print(f"\nAll queries complete! Total execution time: {total_duration:.2f} seconds")
     
     return rad_df, path_df

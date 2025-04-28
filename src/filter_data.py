@@ -341,13 +341,10 @@ def check_from_next_diagnosis(final_df, days=240):
     return final_df
 
 
-def determine_final_interpretation(final_df, output_path):
+def determine_final_interpretation(final_df, output_path, rad_df_length):
     """
     Determine final_interpretation for each patient based on specified rules.
     """
-    initial_count = len(final_df)
-    
-    
     # Identify BENIGN1 cases based on follow-up period
     final_df = check_assumed_benign(final_df)
     
@@ -368,12 +365,12 @@ def determine_final_interpretation(final_df, output_path):
     malignant2_count = sum(final_df['final_interpretation'] == 'MALIGNANT2')
     
     # Create audit log with counts for each category
-    append_audit(output_path, f"Case classification breakdown: "
-                             f"BENIGN1: {benign1_count} ({benign1_count/initial_count*100:.1f}%), "
-                             f"BENIGN2: {benign2_count} ({benign2_count/initial_count*100:.1f}%), "
-                             f"BENIGN3: {benign3_count} ({benign3_count/initial_count*100:.1f}%), "
-                             f"MALIGNANT1: {malignant1_count} ({malignant1_count/initial_count*100:.1f}%), "
-                             f"MALIGNANT2: {malignant2_count} ({malignant2_count/initial_count*100:.1f}%)")
+    append_audit(output_path, f"Labeled Radiology Records (Ultrasound only):")
+    append_audit(output_path, f"BENIGN1: {benign1_count} ({benign1_count/rad_df_length*100:.1f}%) - Assumed Benign")
+    append_audit(output_path, f"BENIGN2: {benign2_count} ({benign2_count/rad_df_length*100:.1f}%) - Pathology Confirmed")
+    append_audit(output_path, f"BENIGN3: {benign3_count} ({benign3_count/rad_df_length*100:.1f}%) - BIRADS 3 with adequate follow ups")
+    append_audit(output_path, f"MALIGNANT1: {malignant1_count} ({malignant1_count/rad_df_length*100:.1f}%) - BIRADS 6 + >=1 Malignant Pathology")
+    append_audit(output_path, f"MALIGNANT2: {malignant2_count} ({malignant2_count/rad_df_length*100:.1f}%) - Pathology Confirmed")
     
     return final_df
 
@@ -435,43 +432,43 @@ def create_final_dataset(rad_df, path_df, output_path):
     
     # Prepare dataframes
     rad_df, path_df = prepare_dataframes(rad_df, path_df)
+    rad_df_length = len(rad_df)
+    path_df_length = len(path_df)
     
     # Combine dataframes
     final_df = combine_dataframes(rad_df, path_df)
     
     # Determine final interpretation
-    final_df = determine_final_interpretation(final_df, output_path)
+    final_df = determine_final_interpretation(final_df, output_path, rad_df_length)
     
     # Save to CSV
     final_df.to_csv(f'{output_path}/combined_dataset_debug.csv', index=False)
     
-    # Print statistics
-    print(f"Dataset created with {len(final_df)} records")
-    append_audit(output_path, f"Dataset created with {len(final_df)} records")
+    
     
     # Filter to keep only rows with 'US' in MODALITY
     initial_count = len(final_df)
     final_df_us = final_df[final_df['MODALITY'].str.contains('US', na=False, case=False)]
     filtered_count = initial_count - len(final_df_us)
 
-    append_audit(output_path, f"Filtered to US modality only: removed {filtered_count} non-US records out of {initial_count} total")
+    append_audit(output_path, f"Removed {filtered_count} radiology records - non-US records")
 
     # Remove rows with empty ENDPOINT_ADDRESS or empty final_interpretation
     empty_endpoint_count = sum(final_df_us['ENDPOINT_ADDRESS'].isna())
     empty_interpretation_count = sum(final_df_us['final_interpretation'].isna())
-    total_empty_rows = sum(final_df_us['ENDPOINT_ADDRESS'].isna() | final_df_us['final_interpretation'].isna())
 
     final_df_us = final_df_us[
         final_df_us['ENDPOINT_ADDRESS'].notna() & 
         final_df_us['final_interpretation'].notna()
     ]
 
-    append_audit(output_path, f"Removed {total_empty_rows} rows with missing data: {empty_endpoint_count} missing addresses, {empty_interpretation_count} missing interpretations")
+    append_audit(output_path, f"Removed {empty_endpoint_count - path_df_length} radiology records - missing pixel addresses") # path_df_length were removed here but lets keep radiology context
+    append_audit(output_path, f"Removed {empty_interpretation_count} radiology records - missing final label")
     
     # Remove rows with 'incomplete' in the Biopsy column
     incomplete_count = sum(final_df_us['Biopsy'].str.contains('incomplete', case=False, na=False))
     final_df_us = final_df_us[~(final_df_us['Biopsy'].str.contains('incomplete', case=False, na=False))]
-    append_audit(output_path, f"Removed {incomplete_count} rows with incomplete biopsies")
+    append_audit(output_path, f"Removed {incomplete_count} radiology records - biopsies marked as 'incomplete'")
     
     # Remove duplicate rows based on Accession_Number
     duplicate_accessions = final_df_us[final_df_us.duplicated(subset=['ACCESSION_NUMBER'], keep=False)]['ACCESSION_NUMBER']
@@ -489,9 +486,9 @@ def create_final_dataset(rad_df, path_df, output_path):
 
     # Print statistics
     print(f"Removed {duplicate_count} rows with duplicate ACCESSION_NUMBER")
-    append_audit(output_path, f"Removed {duplicate_count} rows with duplicate ACCESSION_NUMBER")
+    append_audit(output_path, f"Removed {duplicate_count} radiology records - duplicate ACCESSION_NUMBER")
     print(f"Dataset passed with {len(final_df_us)} results")
-    append_audit(output_path, f"Dataset passed with {len(final_df_us)} results")
+    append_audit(output_path, f"Final dataset passed with {len(final_df_us)} radiology records")
     
     return final_df
 
@@ -506,11 +503,9 @@ if __name__ == "__main__":
         
         rad_df = pd.read_csv(rad_file_path)
         print(f"Loaded radiology data with {len(rad_df)} records")
-        append_audit(output_path, f"Loaded radiology data with {len(rad_df)} records")
         
         path_df = pd.read_csv(path_file_path)
         print(f"Loaded pathology data with {len(path_df)} records")
-        append_audit(output_path, f"Loaded pathology data with {len(path_df)} records")
         
         # Call the create_final_dataset function
         create_final_dataset(rad_df, path_df, output_path)
